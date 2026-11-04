@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { apply, choices, empty, parseImport, question, type Workspace } from "../lib/learning.ts";
+import { apply as applyShuffled, choices, deckDigest, empty, parseImport, question, reviewQueue, type Action, type Workspace } from "../lib/learning.ts";
+
+// Keeps the deck order so the scenarios below stay readable. Shuffling has its own test.
+const keep = <T,>(items: T[]) => items;
+const apply = (state: Workspace, action: Action, time: number) => applyShuffled(state, action, time, keep);
 
 const now = Date.parse("2026-11-03T14:00:00+01:00");
 function setup(count = 4) {
@@ -14,14 +18,13 @@ function setup(count = 4) {
   return { state, deck: state.decks[0] };
 }
 function submit(state: Workspace, answer: string, self?: boolean) {
-  const q = question(state)!;
   const current = state.session!;
   return apply(state, { type: "answer", sessionId: current.id, cursor: current.cursor, round: current.round, answer, self }, now);
 }
 
 test("importiert eine vorhandene Quizlet Datei und meldet kaputte Zeilen", () => {
-  const text = process.env.KARTENLOOP_QUIZLET_FIXTURE
-    ? readFileSync(process.env.KARTENLOOP_QUIZLET_FIXTURE, "utf8")
+  const text = process.env.KALO_QUIZLET_FIXTURE
+    ? readFileSync(process.env.KALO_QUIZLET_FIXTURE, "utf8")
     : Array.from({ length: 12 }, (_, i) => "Frage " + i + "\tAntwort " + i).join("\n");
   const parsed = parseImport(text);
   assert.ok(parsed.cards.length > 10);
@@ -133,4 +136,49 @@ test("Wischbewertungen planen Karten und aktualisieren die Fehlerliste", () => {
   assert.deepEqual(missed.mistakes[deck.id + ":front"], [id]);
   assert.deepEqual(known.mistakes[deck.id + ":front"], []);
   assert.ok(Date.parse(missed.reviews[id + ":front"].due) < Date.parse(known.reviews[id + ":front"].due));
+});
+
+test("Lernen mischt die Karten und die Antwortpositionen wechseln pro Runde", () => {
+  const { state, deck } = setup(8);
+  const reversed = <T,>(items: T[]) => [...items].reverse();
+  const s = applyShuffled(state, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now, reversed);
+  assert.equal(s.session?.queue[0], deck.cards.at(-1)!.id);
+  const positions = new Set(Array.from({ length: 12 }, (_, round) =>
+    choices(deck, deck.cards[0], "front", "runde-" + round).indexOf(deck.cards[0].back)));
+  assert.ok(positions.size > 1);
+  assert.deepEqual(new Set(choices(deck, deck.cards[0], "front", "a")), new Set(choices(deck, deck.cards[0], "front", "b")));
+});
+
+test("Das Tageslimit für neue Karten gilt pro Set", () => {
+  let s = apply(empty(), { type: "save", title: "A", cards: Array.from({ length: 12 }, (_, i) => ({ front: "a" + i, back: "b" + i })) }, now);
+  s = apply(s, { type: "save", title: "B", cards: Array.from({ length: 12 }, (_, i) => ({ front: "c" + i, back: "d" + i })) }, now);
+  const [b, a] = s.decks;
+  for (const card of a.cards.slice(0, 10)) s = apply(s, { type: "sortCard", deckId: a.id, cardId: card.id, direction: "front", known: true }, now);
+  assert.equal(reviewQueue(s, a.cards, "front", now).filter(card => !s.reviews[card.id + ":front"]).length, 0);
+  assert.equal(reviewQueue(s, b.cards, "front", now).length, 10);
+});
+
+test("Sicher gelernte Karten kommen in die Wiederholungsplanung", () => {
+  const { state, deck } = setup(1);
+  let s = apply(state, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now);
+  s = submit(s, deck.cards[0].back);
+  assert.equal(s.reviews[deck.cards[0].id + ":front"], undefined);
+  s = submit(s, deck.cards[0].back);
+  assert.equal(s.session?.done, true);
+  assert.ok(Date.parse(s.reviews[deck.cards[0].id + ":front"].due) > now);
+});
+
+test("Markieren behält den Lernstand, ein veralteter Editor wird abgelehnt", () => {
+  const { state, deck } = setup(2);
+  const card = deck.cards[0];
+  let s = apply(state, { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: true }, now);
+  const base = deckDigest(s.decks[0]);
+  s = apply(s, { type: "star", deckId: deck.id, cardId: card.id, starred: true }, now);
+  assert.equal(s.decks[0].cards[0].starred, true);
+  assert.ok(s.reviews[card.id + ":front"]);
+  assert.equal(deckDigest(s.decks[0]), base);
+  const edit = { type: "save", deckId: deck.id, title: "Neu", base, cards: deck.cards } as const;
+  s = apply(s, edit, now);
+  assert.equal(s.decks[0].cards[0].starred, true, "der Editor überschreibt keine Markierung");
+  assert.throws(() => apply(s, edit, now), /anderen Gerät/);
 });

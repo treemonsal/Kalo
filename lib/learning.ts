@@ -17,6 +17,7 @@ const cardShape = cardInput.extend({ id: key });
 const deckShape = deckInput.extend({ id: key, cards: z.array(cardShape).min(1).max(400) });
 const directionShape = z.enum(["front", "back"]);
 export const MAX_LEARN_ROUNDS = 4;
+export const NEW_CARDS_PER_DAY = 10;
 const modeShape = z.enum(["learn", "cram", "review"]);
 const filterShape = z.enum(["all", "starred", "mistakes"]);
 const tallyShape = z.object({ seen: z.boolean(), streak: z.number().int().min(0).max(2), missed: z.boolean() });
@@ -50,9 +51,10 @@ type Review = z.infer<typeof reviewShape>;
 
 const position = { sessionId: key, cursor: z.number().int().nonnegative() };
 export const actionShape = z.discriminatedUnion("type", [
-  deckInput.extend({ type: z.literal("save"), deckId: key.optional(), draftId: key.optional(),
+  deckInput.extend({ type: z.literal("save"), deckId: key.optional(), draftId: key.optional(), base: z.string().max(20).optional(),
     cards: z.array(cardInput.extend({ id: key.optional() })).min(1).max(400) }),
   z.object({ type: z.literal("delete"), deckId: key }),
+  z.object({ type: z.literal("star"), deckId: key, cardId: key, starred: z.boolean() }),
   z.object({ type: z.literal("start"), deckId: key, mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean().default(false), dueOnly: z.boolean().optional() }),
   z.object({ type: z.literal("continueLearn"), sessionId: key }),
   z.object({ type: z.literal("answer"), ...position, round: z.number().int().positive(), answer: z.string().max(3000), self: z.boolean().optional() }),
@@ -68,6 +70,30 @@ const dayFormatter = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich
 const blank = () => ({ seen: false, streak: 0, missed: false });
 const reverse = (side: Direction): Direction => side === "front" ? "back" : "front";
 const reviewKey = (id: string, direction: Direction) => id + ":" + direction;
+
+/** Raised when the action was made against content that changed in the meantime. */
+export class ConflictError extends Error {}
+
+export type Shuffle = <T>(items: T[]) => T[];
+export const shuffle: Shuffle = input => {
+  const items = [...input];
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+};
+
+function hash(text: string) {
+  let value = 2166136261;
+  for (const ch of text) value = Math.imul(value ^ ch.charCodeAt(0), 16777619);
+  return value >>> 0;
+}
+
+/** Fingerprint of everything the editor can change, so stale editors cannot overwrite newer content. */
+export function deckDigest(deck: Pick<Deck, "title" | "cards">) {
+  return hash(JSON.stringify([deck.title, deck.cards.map(c => [c.id, c.front, c.back, c.frontAliases, c.backAliases])])).toString(36);
+}
 
 export function empty(): Workspace {
   return { decks: [], session: null, reviews: {}, progress: {}, mistakes: {} };
@@ -143,7 +169,7 @@ export function matches(card: Card, direction: Direction, answer: string) {
   return [card[reverse(direction)], ...alternatives].some(value => normal(value) === normal(answer));
 }
 
-export function choices(deck: Deck, card: Card, direction: Direction) {
+export function choices(deck: Deck, card: Card, direction: Direction, seed = "") {
   const correct = card[reverse(direction)];
   const other = new Map<string, string>();
   if (correct.length > 110) return [];
@@ -152,14 +178,12 @@ export function choices(deck: Deck, card: Card, direction: Direction) {
     if (candidate.length <= 110 && !matches(card, direction, candidate)) other.set(normal(candidate), candidate);
   }
   if (other.size < 3) return [];
-  const hash = (text: string) => {
-    let value = 2166136261;
-    for (const ch of card.id + text) value = Math.imul(value ^ ch.charCodeAt(0), 16777619);
-    return value >>> 0;
-  };
+  // Distractors stay stable for a card, but their order changes with every round.
+  const stable = (text: string) => hash(card.id + text);
+  const order = (text: string) => hash(seed + card.id + text);
   const distractors = [...other.values()].sort((a, b) =>
-    Math.abs(a.length - correct.length) - Math.abs(b.length - correct.length) || hash(a) - hash(b)).slice(0, 3);
-  return [correct, ...distractors].sort((a, b) => hash(a) - hash(b));
+    Math.abs(a.length - correct.length) - Math.abs(b.length - correct.length) || stable(a) - stable(b)).slice(0, 3);
+  return [correct, ...distractors].sort((a, b) => order(a) - order(b));
 }
 
 export function question(state: Workspace) {
@@ -170,7 +194,7 @@ export function question(state: Workspace) {
   const answer = card[reverse(s.direction)];
   const tally = s.tally[card.id] ?? blank();
   const options = s.mode === "learn" && !s.writing && !tally.seen
-    ? choices(deck, card, s.direction) : [];
+    ? choices(deck, card, s.direction, s.id + ":" + s.round) : [];
   const kind = s.mode === "review" ? "rate" : options.length ? "choice" : answer.length > 110 ? "self" : "write";
   return { deck, card, kind, prompt: card[s.direction], answer, options } as const;
 }
@@ -186,9 +210,10 @@ export function dueCards(state: Workspace, cards: Card[], direction: Direction, 
 export function reviewQueue(state: Workspace, cards: Card[], direction: Direction, now: number, dueOnly = false) {
   const due = dueCards(state, cards, direction, now).map(item => item.card);
   if (dueOnly) return due;
+  // The daily limit applies per selection, so a busy set does not block the others.
   const today = dayFormatter.format(now);
-  const used = Object.values(state.reviews).filter(r => r.introduced === today).length;
-  const fresh = cards.filter(c => !state.reviews[reviewKey(c.id, direction)]).slice(0, Math.max(0, 10 - used));
+  const used = cards.filter(c => state.reviews[reviewKey(c.id, direction)]?.introduced === today).length;
+  const fresh = cards.filter(c => !state.reviews[reviewKey(c.id, direction)]).slice(0, Math.max(0, NEW_CARDS_PER_DAY - used));
   return [...due, ...fresh];
 }
 
@@ -233,7 +258,7 @@ function checkBackup(state: Workspace) {
   }
 }
 
-export function apply(previous: Workspace, raw: Action, now: number): Workspace {
+export function apply(previous: Workspace, raw: Action, now: number, order: Shuffle = shuffle): Workspace {
   const action = actionShape.parse(raw);
   const state = structuredClone(previous);
   if (action.type === "restore") {
@@ -243,8 +268,15 @@ export function apply(previous: Workspace, raw: Action, now: number): Workspace 
   if (action.type === "save") {
     const old = state.decks.find(d => d.id === action.deckId);
     if (action.deckId && !old) throw new Error("Dieses Set wurde nicht gefunden.");
+    if (old && action.base && action.base !== deckDigest(old)) {
+      throw new ConflictError("Dieses Set wurde inzwischen auf einem anderen Gerät geändert. Kopiere deine Änderungen und öffne den Editor neu.");
+    }
     if (!old && state.decks.length >= 80) throw new Error("Du hast bereits 80 Sets.");
-    const cards = action.cards.map(card => ({ ...card, id: card.id ?? crypto.randomUUID() }));
+    // The editor does not show stars, so the stored marking wins over a possibly stale copy.
+    const cards = action.cards.map(card => {
+      const existing = card.id ? old?.cards.find(c => c.id === card.id) : undefined;
+      return { ...card, id: card.id ?? crypto.randomUUID(), starred: existing ? existing.starred : card.starred };
+    });
     const ids = new Set(cards.map(card => card.id));
     if (ids.size !== cards.length || action.cards.some(card => card.id && !old?.cards.some(c => c.id === card.id))) {
       throw new Error("Ungültige Kartenkennung.");
@@ -278,6 +310,12 @@ export function apply(previous: Workspace, raw: Action, now: number): Workspace 
     if (state.session?.deckId === old.id) state.session = null;
     return state;
   }
+  if (action.type === "star") {
+    const card = state.decks.find(item => item.id === action.deckId)?.cards.find(item => item.id === action.cardId);
+    if (!card) throw new Error("Diese Karte wurde nicht gefunden.");
+    card.starred = action.starred;
+    return state;
+  }
   if (action.type === "sortCard") {
     const deck = state.decks.find(item => item.id === action.deckId);
     if (!deck?.cards.some(card => card.id === action.cardId)) throw new Error("Diese Karte wurde nicht gefunden.");
@@ -302,6 +340,7 @@ export function apply(previous: Workspace, raw: Action, now: number): Workspace 
       ? deck.cards.filter(c => finished.initial.includes(c.id) && finished.tally[c.id]?.streak < 2)
       : deck.cards.filter(c => config.filter === "all" || (config.filter === "starred" ? c.starred : recent.includes(c.id)));
     if (action.type === "start" && action.mode === "review") cards = reviewQueue(state, cards, action.direction, now, action.dueOnly);
+    else cards = order(cards);
     const initial = cards.map(c => c.id);
     const tally = Object.fromEntries(cards.map(c => [c.id, config.mode === "learn"
       ? state.progress[reviewKey(c.id, config.direction)] ?? blank() : blank()]));
@@ -328,9 +367,13 @@ export function apply(previous: Workspace, raw: Action, now: number): Workspace 
       const tally = s.tally[q.card.id];
       tally.seen = true;
       tally.missed = !correct;
+      const before = tally.streak;
       if (!correct) tally.streak = 0;
       else if (q.kind !== "choice") tally.streak = Math.min(2, tally.streak + 1);
-      state.progress[reviewKey(q.card.id, s.direction)] = tally;
+      const id = reviewKey(q.card.id, s.direction);
+      state.progress[id] = tally;
+      // A card learned for the first time joins the spaced repetition schedule.
+      if (before < 2 && tally.streak === 2 && !state.reviews[id]) state.reviews[id] = schedule(undefined, id, 3, now);
     }
     const mistakeKey = reviewKey(s.deckId, s.direction);
     const recent = state.mistakes[mistakeKey] ?? [];
@@ -342,7 +385,7 @@ export function apply(previous: Workspace, raw: Action, now: number): Workspace 
     if (s.mode === "learn") {
       const pending = s.initial.filter(id => s.tally[id].streak < 2);
       if (pending.length && s.round < MAX_LEARN_ROUNDS) {
-        s.queue = pending;
+        s.queue = order(pending);
         s.cursor = 0;
         s.round += 1;
         return state;

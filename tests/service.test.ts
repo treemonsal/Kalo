@@ -41,7 +41,7 @@ test("Site und Chat trennen Identitäten und Freigaben verfallen", async () => {
   const saved = await data<ApiReply>(response);
   const deck = saved.workspace.decks[0];
   const { token } = await data<ApiReply>(api(request("alice", { revision: 1, action: { type: "share", deckId: deck.id, cardIds: [deck.cards[0].id] } }), store, now));
-  const call = tool("kartenloop_read_selection", { token });
+  const call = tool("kalo_read_selection", { token });
   assert.equal((await api(request(null), store, now)).status, 401);
   assert.equal((await mcp(request(null, call), store, now)).status, 401);
   assert.deepEqual((await data<ApiReply>(api(request("bob"), store, now))).workspace.decks, []);
@@ -50,18 +50,43 @@ test("Site und Chat trennen Identitäten und Freigaben verfallen", async () => {
   assert.equal((await data<McpReply>(mcp(request("alice", call), store, now + 3_600_001))).result.isError, true);
 });
 
-test("parallele Schreibzugriffe und alte Revisionen überschreiben keine Daten", async () => {
+test("parallele Schreibzugriffe gehen nicht verloren und alte Revisionen blockieren nichts", async () => {
   const { store, request, now } = setup();
   const results = await Promise.all(["Erste", "Zweite"].map(title => api(request("alice", {
     revision: 0, action: { ...save, title },
   }), store, now)));
-  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
-  assert.equal((await store.read("alice")).workspace.decks.length, 1);
+  assert.deepEqual(results.map(r => r.status), [200, 200]);
+  const account = await store.read("alice");
+  assert.equal(account.workspace.decks.length, 2);
+  const deck = account.workspace.decks[0];
+  const star = { type: "star", deckId: deck.id, cardId: deck.cards[0].id, starred: true };
+  assert.equal((await api(request("alice", { revision: 0, action: star }), store, now)).status, 200);
+  assert.equal((await store.read("alice")).revision, 3);
+});
+
+test("Polling lädt nur bei Änderungen und fremde Sites dürfen nichts ändern", async () => {
+  const { store, request, now } = setup();
+  await api(request("alice", { action: save }), store, now);
+  const unchanged = await data<{ unchanged?: boolean }>(api(request("alice", undefined, "/api/workspace?known=1"), store, now));
+  assert.equal(unchanged.unchanged, true);
+  const changed = await data<ApiReply>(api(request("alice", undefined, "/api/workspace?known=0"), store, now));
+  assert.equal(changed.workspace.decks.length, 1);
+  const sibling = request("alice", { action: save });
+  sibling.headers.set("sec-fetch-site", "same-site");
+  assert.equal((await api(sibling, store, now)).status, 403);
+});
+
+test("Fehler bei einer Aktion liefern den aktuellen Stand mit", async () => {
+  const { store, request, now } = setup();
+  await api(request("alice", { action: save }), store, now);
+  const reply = await api(request("alice", { action: { type: "delete", deckId: crypto.randomUUID() } }), store, now);
+  assert.equal(reply.status, 400);
+  assert.equal((await data<ApiReply>(reply)).workspace.decks.length, 1);
 });
 
 test("ChatGPT legt einen Entwurf ab, erst Bestätigung erstellt das Set", async () => {
   const { store, request, now } = setup();
-  const call = tool("kartenloop_create_draft", { title: save.title, cards: save.cards });
+  const call = tool("kalo_create_draft", { title: save.title, cards: save.cards });
   assert.equal((await data<McpReply>(mcp(request("alice", call), store, now))).result.isError, undefined);
   const account = await data<ApiReply>(api(request("alice"), store, now));
   assert.equal(account.workspace.decks.length, 0);
@@ -83,5 +108,5 @@ test("Sites erhält eine vollständige MCP Discovery und findet beide Werkzeuge"
   const list = await data<{ result: { tools: { name: string }[] } }>(
     mcp(request("alice", { ...discover, method: "tools/list" }, "/mcp"), store, now),
   );
-  assert.deepEqual(list.result.tools.map(item => item.name), ["kartenloop_read_selection", "kartenloop_create_draft"]);
+  assert.deepEqual(list.result.tools.map(item => item.name), ["kalo_read_selection", "kalo_create_draft"]);
 });
