@@ -1,12 +1,18 @@
 import type { Action, CardInput, Direction, Workspace } from "../../lib/learning";
+import type { PartnerSummary, SocialAction } from "../../lib/social";
 
 export type Draft = { id: string; title: string; cards: CardInput[]; created: number };
-export type Data = { workspace: Workspace; drafts: Draft[]; revision: number };
+export type Data = {
+  workspace: Workspace; drafts: Draft[]; revision: number;
+  published?: Record<string, string>; push?: { enabled: boolean; morning: string; evening: string };
+  partner?: PartnerSummary | null; pushKey?: string | null;
+};
 export type EditCard = CardInput & { id?: string; row: string };
 export type Editor = { title: string; cards: EditCard[]; deckId?: string; draftId?: string; base?: string };
-export type Extra = { type: "share"; deckId: string; cardIds: string[] } | { type: "discard"; draftId: string } | { type: "revoke"; token: string };
-export type View = "home" | "deck" | "editor" | "import" | "cards" | "study" | "chat" | "settings";
-export type MutateResult = Data & { error?: string; token?: string };
+export type Extra = { type: "share"; deckId: string; cardIds: string[] } | { type: "discard"; draftId: string } | { type: "revoke"; token: string } | SocialAction;
+export type View = "home" | "deck" | "editor" | "import" | "cards" | "study" | "chat" | "settings" | "duel";
+export type DuelData = { title: string; ownerName: string; questions: { prompt: string; options: string[]; answer: string }[]; results: { name: string; correct: number; ms: number }[]; played?: boolean };
+export type MutateResult = Data & { error?: string; token?: string; deckId?: string; imports?: number; duel?: DuelData };
 export type MutateOptions = {
   /** Wait for earlier actions instead of being dropped while one runs (card swipes, undo, stars). */
   queue?: boolean;

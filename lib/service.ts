@@ -1,9 +1,14 @@
 import { z } from "zod";
 import { ConflictError, actionShape, apply, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
+import type { PushSettings } from "./push.ts";
+import { notice, partnerSummary, publicDuel, runSocial, socialShape, type Duel, type Share } from "./social.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
 type Selection = { token: string; deckId: string; title: string; cards: Card[]; expires: number };
-type Account = { revision: number; workspace: Workspace; drafts: Draft[]; selections: Selection[] };
+export type Account = {
+  revision: number; workspace: Workspace; drafts: Draft[]; selections: Selection[];
+  partner?: { id: string; name: string }; published?: Record<string, string>; push?: PushSettings;
+};
 
 export class AccountStore {
   private readonly db: D1Database;
@@ -23,6 +28,33 @@ export class AccountStore {
     const record = await this.db.prepare("SELECT revision FROM accounts WHERE owner = ?")
       .bind(owner).first<{ revision: number }>();
     return record?.revision ?? 0;
+  }
+
+  /** Rows for shared things ("share:…", "duel:…"), stored as JSON in the same table. */
+  async getRecord<T>(recordKey: string): Promise<{ revision: number; data: T } | null> {
+    const record = await this.db.prepare("SELECT revision, payload FROM accounts WHERE owner = ?")
+      .bind(recordKey).first<{ revision: number; payload: string }>();
+    return record ? { revision: record.revision, data: JSON.parse(record.payload) as T } : null;
+  }
+
+  async putRecord(recordKey: string, revision: number, data: unknown) {
+    const payload = JSON.stringify(data);
+    if (payload.length > 1_450_000) throw new InputError("Das ist zu gross zum Teilen.");
+    const operation = revision === 0
+      ? this.db.prepare("INSERT OR IGNORE INTO accounts (owner, revision, payload) VALUES (?, 1, ?)").bind(recordKey, payload)
+      : this.db.prepare("UPDATE accounts SET revision = revision + 1, payload = ? WHERE owner = ? AND revision = ?").bind(payload, recordKey, revision);
+    return (await operation.run()).meta.changes === 1;
+  }
+
+  async dropRecord(recordKey: string) {
+    await this.db.prepare("DELETE FROM accounts WHERE owner = ?").bind(recordKey).run();
+  }
+
+  /** Accounts with at least one push subscription. */
+  async pushOwners() {
+    const rows = await this.db.prepare("SELECT owner FROM accounts WHERE owner NOT LIKE '%:%' AND payload LIKE ?")
+      .bind('%"subs":[{%').all<{ owner: string }>();
+    return rows.results.map(row => row.owner);
   }
 
   async write(owner: string, account: Account) {
@@ -56,8 +88,18 @@ function json(body: unknown, status = 200) {
 function ownerOf(req: Request) {
   return req.headers.get("oai-authenticated-user-id")?.trim();
 }
+function nameOf(req: Request) {
+  const full = req.headers.get("oai-authenticated-user-full-name");
+  if (full) {
+    try { return decodeURIComponent(full).trim().split(/\s+/)[0].slice(0, 30) || "Jemand"; } catch { /* fall through */ }
+  }
+  return req.headers.get("oai-authenticated-user-email")?.split("@")[0].slice(0, 30) || "Jemand";
+}
 function visible(account: Account) {
-  return { workspace: account.workspace, drafts: account.drafts, revision: account.revision };
+  return {
+    workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {},
+    push: { enabled: Boolean(account.push?.subs.length), morning: account.push?.morning ?? "06:45", evening: account.push?.evening ?? "19:30" },
+  };
 }
 async function body(req: Request): Promise<unknown> {
   if (!req.headers.get("content-type")?.toLowerCase().startsWith("application/json")) throw new InputError("JSON erwartet.");
@@ -129,19 +171,43 @@ function change(account: Account, action: Mutation, now: number) {
   return undefined;
 }
 
-export async function api(req: Request, store: AccountStore, now = Date.now()) {
+export async function api(req: Request, store: AccountStore, now = Date.now(), options: { pushKey?: string } = {}) {
   const owner = ownerOf(req);
   if (!owner) return json({ error: "Melde dich mit ChatGPT an." }, 401);
   if (req.method === "GET") {
+    const params = new URL(req.url).searchParams;
+    const shareToken = params.get("share");
+    if (shareToken) {
+      const share = await store.getRecord<Share>("share:" + shareToken);
+      if (!share) return json({ error: "Dieser Link ist ungültig oder wurde zurückgezogen." }, 404);
+      const { title, ownerName, imports, cards } = share.data;
+      return json({ share: { title, ownerName, imports, count: cards.length, sample: cards.slice(0, 3), own: share.data.owner === owner } });
+    }
+    const duelToken = params.get("duel");
+    if (duelToken) {
+      const duel = await store.getRecord<Duel>("duel:" + duelToken);
+      if (!duel) return json({ error: "Dieses Duell gibt es nicht mehr." }, 404);
+      return json({ duel: { ...publicDuel(duel.data), played: duel.data.results.some(result => result.id === owner) } });
+    }
+    if (params.get("notice")) return json(notice(await store.read(owner), now));
     // Polling sends the known revision. An unchanged library costs one small query instead of the whole payload.
-    const known = new URL(req.url).searchParams.get("known");
+    const known = params.get("known");
     if (known !== null && Number(known) === await store.revision(owner)) return json({ unchanged: true, revision: Number(known) });
-    return json(visible(await store.read(owner)));
+    const account = await store.read(owner);
+    return json({ ...visible(account), partner: await partnerSummary(store, account, owner, now), pushKey: options.pushKey ?? null });
   }
   if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
   if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);
   try {
-    const parsed = mutation.safeParse(await body(req));
+    const input = await body(req);
+    const social = z.object({ action: socialShape }).safeParse(input);
+    if (social.success) {
+      const reply = await runSocial(store, { id: owner, name: nameOf(req) }, social.data.action, now);
+      const { account, ...rest } = reply.body as { account?: Account };
+      if (!account) return json(rest, reply.status);
+      return json({ ...visible(account), partner: await partnerSummary(store, account, owner, now), ...rest }, reply.status);
+    }
+    const parsed = mutation.safeParse(input);
     if (!parsed.success) return json({ error: "Prüfe die Felder. Pro Karte sind 1500 Zeichen je Seite erlaubt." }, 400);
     const { action } = parsed.data;
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {

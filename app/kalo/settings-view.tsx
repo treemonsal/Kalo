@@ -3,6 +3,12 @@
 import { useState } from "react";
 import type { Appearance } from "../../lib/appearance";
 import { workspaceShape, type Workspace } from "../../lib/learning";
+import { goalOf } from "../../lib/progress";
+import type { PartnerSummary } from "../../lib/social";
+import { Icon } from "./icons";
+import { PartnerCard } from "./progress-ui";
+import { SOUND_KEY, play } from "./sound";
+import { useStored, writeStored } from "./storage";
 import type { Mutate } from "./types";
 
 export const BACKUP_FORMAT = "kalo";
@@ -11,11 +17,34 @@ const LEGACY_FORMAT = "kartenloop";
 type Props = {
   workspace: Workspace; busy: boolean; theme: Appearance; chatLink: string;
   reminders: { enabled: boolean; toggle: () => Promise<void>; test: () => Promise<void> };
+  pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string }; partner?: PartnerSummary | null;
+  onInvite: () => void; onLeave: () => void;
   mutate: Mutate; onTheme: (value: Appearance) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
 };
 
-export default function SettingsView({ workspace, busy, theme, chatLink, reminders, mutate, onTheme, onChatLink, onError, onNotice }: Props) {
+const GOALS = [10, 20, 30, 50];
+const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
+const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
+
+export default function SettingsView({ workspace, busy, theme, chatLink, reminders, mutate, onTheme, onChatLink, onError, onNotice, pushKey, push, partner, onInvite, onLeave }: Props) {
+  const sound = useStored(SOUND_KEY) !== "off";
+  const morning = push?.morning ?? "06:45";
+  const evening = push?.evening ?? "19:30";
+
+  async function enablePush() {
+    if (!pushKey) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      throw new Error("Dieser Browser kann keine Push-Mitteilungen empfangen. Auf dem iPhone: Kalo im Teilen-Menü zum Home-Bildschirm hinzufügen und von dort öffnen.");
+    }
+    if (await Notification.requestPermission() !== "granted") throw new Error("Erlaube Mitteilungen für Kalo in den Einstellungen deines Geräts.");
+    const registration = await navigator.serviceWorker.register("/kalo-notifications.js");
+    await navigator.serviceWorker.ready;
+    const subscription = (await registration.pushManager.getSubscription()) ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes(pushKey) });
+    const { endpoint, keys } = subscription.toJSON();
+    if (!endpoint || !keys?.p256dh || !keys.auth) throw new Error("Die Anmeldung für Mitteilungen ist fehlgeschlagen.");
+    if (await mutate({ type: "pushSubscribe", subscription: { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }, morning, evening })) onNotice("Erinnerungen eingeschaltet");
+  }
   const [restore, setRestore] = useState<Workspace | null>(null);
   const [link, setLink] = useState(chatLink);
 
@@ -42,12 +71,36 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
       </fieldset>
       <p className="muted">Die Auswahl gilt für diesen Browser.</p>
     </section>
+    <section className="panel flow"><h2>Tagesziel</h2>
+      <fieldset className="appearance"><legend>Karten pro Tag</legend>
+        {GOALS.map(value => <label key={value}><input type="radio" name="goal" checked={goalOf(workspace) === value} onChange={() => void mutate({ type: "setGoal", goal: value })} /><span>{value}</span></label>)}
+      </fieldset>
+      <p className="muted">Jede bearbeitete Karte zählt, Goldkarten doppelt. Erreichst du das Ziel, wächst deine Serie. Einen verpassten Tag pro Woche überbrückt ein Ruhetag.</p>
+      <label className="check"><input type="checkbox" checked={sound} onChange={event => { writeStored(SOUND_KEY, event.target.checked ? "on" : "off"); if (event.target.checked) play("correct"); }} /> Töne beim Lernen</label>
+    </section>
     <section className="panel flow"><h2>Lernerinnerungen</h2>
-      <p>Wenn Kalo geöffnet ist und Karten fällig sind, erhältst du höchstens eine Mitteilung pro Tag.</p>
-      <div className="actions">
-        <button className="button" onClick={() => void reminderAction(reminders.toggle)}>{reminders.enabled ? "Erinnerungen ausschalten" : "Erinnerungen einschalten"}</button>
-        <button className="button" onClick={() => void reminderAction(reminders.test)}>Testmitteilung senden</button>
-      </div>
+      {pushKey ? <>
+        <p>Morgens erinnert dich Kalo an fällige Karten, abends nur, wenn deine Serie sonst endet. Höchstens zwei Mitteilungen pro Tag.</p>
+        <div className="two">
+          <label>Morgens<select value={morning} onChange={event => void mutate({ type: "pushTimes", morning: event.target.value, evening })}>{TIMES.map(t => <option key={t}>{t}</option>)}</select></label>
+          <label>Abends<select value={evening} onChange={event => void mutate({ type: "pushTimes", morning, evening: event.target.value })}>{TIMES.map(t => <option key={t}>{t}</option>)}</select></label>
+        </div>
+        <div className="actions">
+          {push?.enabled ? <button className="button" onClick={() => void mutate({ type: "pushUnsubscribe" })}>Erinnerungen ausschalten</button>
+            : <button className="button primary" onClick={() => void reminderAction(enablePush)}><Icon kind="bell" /> Erinnerungen einschalten</button>}
+        </div>
+      </> : <>
+        <p>Wenn Kalo geöffnet ist und Karten fällig sind, erhältst du höchstens eine Mitteilung pro Tag. Erinnerungen bei geschlossener App sind auf diesem Server noch nicht eingerichtet.</p>
+        <div className="actions">
+          <button className="button" onClick={() => void reminderAction(reminders.toggle)}>{reminders.enabled ? "Erinnerungen ausschalten" : "Erinnerungen einschalten"}</button>
+          <button className="button" onClick={() => void reminderAction(reminders.test)}>Testmitteilung senden</button>
+        </div>
+      </>}
+    </section>
+    <section className="panel flow"><h2>Lernpartner</h2>
+      {partner ? <><PartnerCard partner={partner} /><div className="actions"><button className="button" onClick={onLeave}>Partnerschaft beenden</button></div></>
+        : <><p>Lernt jeden Tag beide euer Ziel, wächst eure gemeinsame Serie. Wer aussetzt, lässt den anderen hängen.</p>
+          <div className="actions"><button className="button primary" onClick={onInvite}><Icon kind="people" /> Partner einladen</button></div></>}
     </section>
     <section className="panel flow"><h2>Datensicherung</h2><p>Die JSON Datei enthält deine Kartensets und deinen Lernstand.</p>
       <div className="actions"><button className="button primary" onClick={backup}>Sicherung herunterladen</button><label className="button file-button">Sicherung wiederherstellen<input type="file" accept=".json,application/json" disabled={busy} onChange={async event => {

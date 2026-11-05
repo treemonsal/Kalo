@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { type Workspace } from "../lib/learning.ts";
 import { AccountStore, api, mcp } from "../lib/service.ts";
+import { reminderFor, runReminders, vapidAuthorization } from "../lib/push.ts";
 
 function setup() {
   const db = new DatabaseSync(":memory:");
@@ -11,7 +12,7 @@ function setup() {
     prepare(sql: string) {
       const statement = db.prepare(sql);
       return { bind(...values: (string | number)[]) {
-        return { first: async () => statement.get(...values) ?? null,
+        return { first: async () => statement.get(...values) ?? null, all: async () => ({ results: statement.all(...values) }),
           run: async () => ({ meta: { changes: Number(statement.run(...values).changes) } }) };
       } };
     },
@@ -20,7 +21,7 @@ function setup() {
   const now = 1_800_000_000_000;
   const request = (owner: string | null, input?: unknown, path = "/api/workspace") =>
     new Request("https://app.test" + path, {
-      headers: { "content-type": "application/json", ...(owner ? { "oai-authenticated-user-id": owner } : {}) },
+      headers: { "content-type": "application/json", ...(owner ? { "oai-authenticated-user-id": owner, "oai-authenticated-user-email": owner + "@test.ch" } : {}) },
       method: input ? "POST" : "GET", body: input ? JSON.stringify(input) : undefined,
     });
   return { store, request, now };
@@ -124,4 +125,81 @@ test("Rückgängig über die API und veraltete Rücknahmen", async () => {
   const again = await api(request("alice", { action: { type: "undoSort", sortId } }), store, now);
   assert.equal(again.status, 409);
   assert.equal((await data<ApiReply>(again)).workspace.decks.length, 1, "der aktuelle Stand kommt mit");
+});
+
+const post = (owner: string, action: unknown) => ({ owner, input: { action } });
+type Social = ApiReply & { error?: string; token?: string; deckId?: string; partner?: { name: string; shared: number } | null;
+  duel?: { results: { name: string; correct: number }[] }; share?: { title: string; imports: number; own: boolean } };
+
+test("Sets per Link teilen: Kopie für andere, Zähler für die Besitzerin", async () => {
+  const { store, request, now } = setup();
+  const call = async (who: { owner: string; input: unknown }, path?: string) => data<Social>(api(request(who.owner, who.input, path), store, now));
+  const deck = (await call(post("alice", save))).workspace.decks[0];
+  const { token } = await call(post("alice", { type: "publish", deckId: deck.id }));
+  assert.ok(token);
+  const preview = await data<Social>(api(request("bob", undefined, "/api/workspace?share=" + token), store, now));
+  assert.equal(preview.share?.title, "Privat");
+  assert.equal(preview.share?.own, false);
+  const imported = await call(post("bob", { type: "importShare", token }));
+  assert.equal(imported.workspace.decks[0].title, "Privat");
+  assert.notEqual(imported.workspace.decks[0].id, deck.id, "eine eigene Kopie");
+  assert.equal((await data<Social>(api(request("alice", undefined, "/api/workspace?share=" + token), store, now))).share?.imports, 1);
+  assert.equal((await call(post("alice", { type: "publish", deckId: deck.id }))).token, token, "derselbe Link bleibt");
+  assert.equal((await api(request("bob", { action: { type: "importShare", token: crypto.randomUUID() } }), store, now)).status, 404);
+});
+
+test("Lernpartner: Einladung, gemeinsame Serie und Trennung", async () => {
+  const { store, request, now } = setup();
+  const call = async (owner: string, action: unknown) => data<Social>(api(request(owner, { action }), store, now));
+  const { token } = await call("alice", { type: "invitePartner" });
+  assert.equal((await api(request("alice", { action: { type: "acceptPartner", token } }), store, now)).status, 400, "nicht mit sich selbst");
+  const accepted = await call("bob", { type: "acceptPartner", token });
+  assert.equal(accepted.partner?.name, "alice");
+  const alice = await data<Social>(api(request("alice"), store, now));
+  assert.equal(alice.partner?.name, "bob");
+  assert.equal((await api(request("carol", { action: { type: "acceptPartner", token } }), store, now)).status, 404, "Einladung nur einmal");
+  await call("bob", { type: "leavePartner" });
+  assert.equal((await data<Social>(api(request("alice"), store, now))).partner, null);
+});
+
+test("Duell: gleiche Fragen, Ergebnis pro Person, nur ein Versuch", async () => {
+  const { store, request, now } = setup();
+  const cards = Array.from({ length: 8 }, (_, i) => ({ front: "Frage " + i, back: "Antwort " + i }));
+  const deck = (await data<Social>(api(request("alice", { action: { type: "save", title: "Duell", cards } }), store, now))).workspace.decks[0];
+  const { token } = await data<Social>(api(request("alice", { action: { type: "createDuel", deckId: deck.id } }), store, now));
+  const duel = (await data<{ duel: { questions: { answer: string }[] } }>(api(request("bob", undefined, "/api/workspace?duel=" + token), store, now))).duel;
+  assert.equal(duel.questions.length, 8);
+  const answers = duel.questions.map((q, i) => i < 6 ? q.answer : "falsch");
+  const result = await data<Social>(api(request("bob", { action: { type: "duelResult", token, answers, ms: 41_000 } }), store, now));
+  assert.deepEqual(result.duel?.results.map(r => [r.name, r.correct]), [["bob", 6]]);
+  const again = await data<Social>(api(request("bob", { action: { type: "duelResult", token, answers: duel.questions.map(q => q.answer), ms: 1 } }), store, now));
+  assert.equal(again.duel?.results[0].correct, 6, "der erste Versuch zählt");
+  const small = (await data<Social>(api(request("alice", { action: { type: "save", title: "Klein", cards: cards.slice(0, 3) } }), store, now))).workspace.decks[0];
+  assert.equal((await api(request("alice", { action: { type: "createDuel", deckId: small.id } }), store, now)).status, 400);
+});
+
+test("Push: VAPID-Signatur ist gültig, Erinnerung kommt einmal am Morgen", async () => {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const publicKey = Buffer.from(await crypto.subtle.exportKey("raw", pair.publicKey)).toString("base64url");
+  const privateKey = (await crypto.subtle.exportKey("jwk", pair.privateKey)).d!;
+  const keys = { publicKey, privateKey, subject: "mailto:test@kalo.ch" };
+  const header = await vapidAuthorization("https://push.example.com/abc", keys, Date.now());
+  const [jwt] = header.slice("vapid t=".length).split(", k=");
+  const [head, payload, signature] = jwt.split(".");
+  assert.equal(JSON.parse(Buffer.from(payload, "base64url").toString()).aud, "https://push.example.com");
+  assert.ok(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pair.publicKey, Buffer.from(signature, "base64url"), new TextEncoder().encode(head + "." + payload)));
+
+  const { store, request } = setup();
+  const morning = Date.parse("2026-11-04T06:50:00+01:00");
+  const deck = (await data<Social>(api(request("alice", { action: save }), store, morning - 3_600_000))).workspace.decks[0];
+  await api(request("alice", { action: { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: false } }), store, morning - 3_600_000);
+  const subscription = { endpoint: "https://push.example.com/abc", keys: { p256dh: "x", auth: "y" } };
+  await api(request("alice", { action: { type: "pushSubscribe", subscription, morning: "06:45", evening: "19:30" } }), store, morning);
+  assert.equal(reminderFor(await store.read("alice"), morning), "morning");
+  const sent: string[] = [];
+  const send = (async (url: string) => { sent.push(url); return new Response(null, { status: 201 }); }) as typeof fetch;
+  assert.equal(await runReminders(store, keys, morning, send), 1);
+  assert.equal(await runReminders(store, keys, morning + 60_000, send), 0, "nicht zweimal am selben Tag");
+  const text = await data<{ title: string }>(api(request("alice", undefined, "/api/workspace?notice=1"), store, morning));
+  assert.match(text.title, /fällig/);
 });

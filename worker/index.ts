@@ -1,5 +1,7 @@
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
+import { runReminders } from "../lib/push";
+import { AccountStore } from "../lib/service";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 const worker = {
@@ -24,6 +26,14 @@ const worker = {
       };
     }
     return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
+  },
+  // Learning reminders. Needs a cron trigger (every 15 minutes) and the VAPID secrets; without them nothing is sent.
+  async scheduled(_event: ScheduledController, env: Cloudflare.Env) {
+    const secrets = env as unknown as Record<string, string | undefined>;
+    if (!env.DB || !secrets.VAPID_PUBLIC_KEY || !secrets.VAPID_PRIVATE_KEY) return;
+    await runReminders(new AccountStore(env.DB), {
+      publicKey: secrets.VAPID_PUBLIC_KEY, privateKey: secrets.VAPID_PRIVATE_KEY, subject: secrets.VAPID_SUBJECT ?? "mailto:kalo@example.com",
+    }, Date.now());
   },
 };
 

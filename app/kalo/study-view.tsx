@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { MAX_LEARN_ROUNDS, matches, question, type Workspace } from "../../lib/learning";
+import { MAX_LEARN_ROUNDS, dayOf, matches, question, secure, type Workspace } from "../../lib/learning";
+import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
+import { GoalBanner, NextStepActions } from "./progress-ui";
+import { play } from "./sound";
 import { Icon, Key } from "./icons";
 import { finePointer, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
@@ -9,7 +12,7 @@ import { dateFormat, plural, type Mutate } from "./types";
 type Session = NonNullable<Workspace["session"]>;
 type Question = NonNullable<ReturnType<typeof question>>;
 /** The visible result of an answer. It appears at once and stays until "Weiter", even after the session moved on. */
-type Result = { q: Question; submitted: string; correct: boolean; from: string; to: string | null };
+type Result = { q: Question; submitted: string; correct: boolean; from: string; to: string | null; mastered?: boolean };
 
 const modeTitle = { learn: "Lernen", cram: "Pauken", review: "Wiederholen" };
 const grades = ["Nochmal", "Schwer", "Gut", "Einfach"] as const;
@@ -54,11 +57,12 @@ function Mastery({ session }: { session: Session }) {
 }
 
 type Props = {
-  workspace: Workspace; session: Session; busy: boolean; mutate: Mutate;
+  workspace: Workspace; session: Session; busy: boolean; mutate: Mutate; now: number;
   onBack: () => void; onStart: (mode: "learn" | "cram", filter?: "mistakes") => void;
+  onStep: (step: Step) => void; onHome: () => void;
 };
 
-export default function StudyView({ workspace, session, busy, mutate, onBack, onStart }: Props) {
+export default function StudyView({ workspace, session, busy, mutate, now, onBack, onStart, onStep, onHome }: Props) {
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
   const q = question(workspace);
@@ -77,10 +81,17 @@ export default function StudyView({ workspace, session, busy, mutate, onBack, on
   async function submit(value: string, self?: boolean, show = true) {
     if (!q) return;
     const from = current;
-    if (show) setResult({ q, submitted: value, correct: self ?? (q.kind === "choice" ? value === q.answer : matches(q.card, session.direction, value)), from, to: null });
+    const correct = self ?? (q.kind === "choice" ? value === q.answer : matches(q.card, session.direction, value));
+    // Sound and colour on the same frame, before the server answers.
+    if (show) { setResult({ q, submitted: value, correct, from, to: null }); play(correct ? (q.gold ? "gold" : "correct") : "wrong"); }
+    const wasSecure = secure(workspace, q.card.id, session.direction);
     const saved = await mutate({ type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: value, self });
+    const mastered = Boolean(saved && correct && !wasSecure && secure(saved.workspace, q.card.id, session.direction));
+    const combo = saved?.workspace.session?.combo ?? 0;
+    if (mastered) play("mastered");
+    else if (correct && combo >= 5 && combo % 5 === 0) play("combo");
     if (!show) return;
-    if (saved) setResult(old => old && old.from === from ? { ...old, to: positionOf(saved.workspace.session) } : old);
+    if (saved) setResult(old => old && old.from === from ? { ...old, to: positionOf(saved.workspace.session), mastered } : old);
     else setResult(old => old && old.from === from ? null : old);
   }
 
@@ -88,6 +99,8 @@ export default function StudyView({ workspace, session, busy, mutate, onBack, on
     <div className="study-top">
       <button className="icon-button" aria-label={session.done ? "Zum Set" : "Lernen unterbrechen"} title={session.done ? "Zum Set" : "Unterbrechen"} onClick={onBack}><Icon kind="back" /></button>
       <div className="toolbar-title"><h1>{modeTitle[session.mode]}</h1><span className="counter">{deck?.title}</span></div>
+      {(session.combo ?? 0) >= 3 && !session.done && <span className="combo-chip" key={session.combo} aria-label={"Combo: " + session.combo + " richtig in Folge"}>
+        <Icon kind="flame" filled /> {session.combo}</span>}
     </div>
     {session.mode === "learn" && session.initial.length > 0 ? <div className="study-progress">
       <Mastery session={session} />
@@ -112,20 +125,21 @@ export default function StudyView({ workspace, session, busy, mutate, onBack, on
       </div>
     </section></>;
 
-  if (session.done && !shown) return <>{header}<Finish session={session} workspace={workspace} busy={busy} mastered={mastered} open={open} front={front}
-    onBack={onBack} onStart={onStart} onContinue={() => void mutate({ type: "continueLearn", sessionId: session.id })} /></>;
+  if (session.done && !shown) return <>{header}<Finish session={session} workspace={workspace} busy={busy} mastered={mastered} open={open} front={front} now={now}
+    onBack={onBack} onStart={onStart} onStep={onStep} onHome={onHome} onContinue={() => void mutate({ type: "continueLearn", sessionId: session.id })} /></>;
 
   const view = shown?.q ?? q;
   if (!view) return header;
   return <>{header}
-    <section className="panel question" aria-labelledby="prompt">
+    <section className="panel question" data-gold={view.gold || undefined} aria-labelledby="prompt">
       <div className="question-content" key={"prompt:" + (shown ? shown.from : current)}>
-        <span className="eyebrow">{view.kind === "choice" ? "Antwort wählen" : view.kind === "write" ? "Antwort schreiben" : "Antwort abrufen"}</span>
+        <span className="question-top"><span className="eyebrow">{view.kind === "choice" ? "Antwort wählen" : view.kind === "write" ? "Antwort schreiben" : "Antwort abrufen"}</span>
+          {view.gold && <span className="gold-badge"><Icon kind="sparkle" filled /> Goldkarte · zählt doppelt</span>}</span>
         <h2 id="prompt" className="prompt" data-size={textSize(view.prompt)}>{view.prompt}</h2>
       </div>
       {view.kind === "choice"
         ? <Choices q={view} shown={shown} busy={busy} onPick={option => void submit(option)} onNext={() => setResult(null)} />
-        : shown ? <Frame zone={<CorrectAnswer submitted={shown.submitted} answer={view.answer} />}
+        : shown ? <Frame zone={<CorrectAnswer submitted={shown.submitted} answer={view.answer} mastered={shown.mastered} />}
             actions={<><span /><NextButton disabled={shown.to === null} onClick={() => setResult(null)} /></>} />
           : q && <AnswerArea key={"answer:" + current} q={q} busy={busy} direction={session.direction} submit={submit}
               rate={grade => void mutate({ type: "rate", sessionId: session.id, cursor: session.cursor, grade })} />}
@@ -140,9 +154,9 @@ function NextButton({ disabled, onClick }: { disabled?: boolean; onClick: () => 
   return <button className="button primary" disabled={disabled} autoFocus={finePointer()} onClick={onClick}>Weiter <Icon kind="forward" /></button>;
 }
 
-function CorrectAnswer({ submitted, answer }: { submitted: string; answer: string }) {
+function CorrectAnswer({ submitted, answer, mastered }: { submitted: string; answer: string; mastered?: boolean }) {
   return <div className="answer-box" data-result="correct">
-    <span className="answer-label"><Icon kind="check" /> Richtig</span>
+    <span className="answer-label"><Icon kind="check" /> Richtig{mastered && <span className="mastered-stamp"><Icon kind="sparkle" filled /> Gemeistert</span>}</span>
     <p data-size={textSize(submitted)}>{submitted}</p>
     {normal(submitted) !== normal(answer) && <p className="answer-note">Musterantwort: {answer}</p>}
   </div>;
@@ -164,7 +178,8 @@ function Choices({ q, shown, busy, onPick, onNext }: { q: Question; shown: Resul
         <span data-size={textSize(option)}>{option}</span>
       </button>;
     })}</div>}
-    actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")}>{shown.correct ? "Richtig" : "Noch nicht ganz"}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
+    actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")}>{shown.correct ? "Richtig" : "Noch nicht ganz"}
+      {shown.mastered && <span className="mastered-stamp"><Icon kind="sparkle" filled /> Gemeistert</span>}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
       : <><span className="action-hint">Wähle eine Antwort</span><span /></>} />;
 }
 
@@ -188,7 +203,7 @@ function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
   function check() {
     if (!answer.trim() || busy) return;
     if (matches(q.card, direction, answer)) void submit(answer);
-    else setPhase("wrong");
+    else { setPhase("wrong"); play("wrong"); }
   }
 
   if (q.kind === "write" && phase === "input") return <Frame
@@ -223,11 +238,14 @@ function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
 }
 
 type FinishProps = {
-  session: Session; workspace: Workspace; busy: boolean; mastered: string[]; open: string[]; front: (id: string) => string;
-  onBack: () => void; onStart: Props["onStart"]; onContinue: () => void;
+  session: Session; workspace: Workspace; busy: boolean; mastered: string[]; open: string[]; front: (id: string) => string; now: number;
+  onBack: () => void; onStart: Props["onStart"]; onContinue: () => void; onStep: (step: Step) => void; onHome: () => void;
 };
 
-function Finish({ session, workspace, busy, mastered, open, front, onBack, onStart, onContinue }: FinishProps) {
+function Finish({ session, workspace, busy, mastered, open, front, now, onBack, onStart, onContinue, onStep, onHome }: FinishProps) {
+  const step = nextStep(workspace, now, session.deckId);
+  const goalReached = dayStats(workspace, dayOf(now)).points >= goalOf(workspace);
+  const next = <NextStepActions step={step} goalReached={goalReached} onStep={onStep} onDone={onHome} />;
   const deck = workspace.decks.find(item => item.id === session.deckId);
   const recent = workspace.mistakes[session.deckId + ":" + session.direction] ?? [];
   const selection = deck?.cards.filter(card => session.filter === "all" || (session.filter === "starred" ? card.starred : recent.includes(card.id))) ?? [];
@@ -249,10 +267,12 @@ function Finish({ session, workspace, busy, mastered, open, front, onBack, onSta
       {mastered.length > 0 && <div><h3><Icon kind="check" /> Sitzt <span>{mastered.length}</span></h3><ul>{mastered.map(id => <li key={id}>{front(id)}</li>)}</ul></div>}
       {open.length > 0 && <div className="open"><h3><Icon kind="repeat" /> Noch offen <span>{open.length}</span></h3><ul>{open.map(id => <li key={id}>{front(id)}</li>)}</ul></div>}
     </div>
+    <GoalBanner workspace={workspace} now={now} />
     <div className="actions">
-      {open.length > 0 && <button className="button primary" autoFocus disabled={busy} onClick={onContinue}><Icon kind="repeat" /> Offene Karten üben</button>}
-      {otherOpen > 0 && <button className={"button" + (open.length ? "" : " primary")} autoFocus={!open.length} disabled={busy} onClick={() => onStart("learn")}>Nächste Einheit <Icon kind="forward" /></button>}
-      <button className={"button" + (open.length || otherOpen ? "" : " primary")} autoFocus={!open.length && !otherOpen} onClick={onBack}>Zum Set</button>
+      {open.length > 0 ? <button className="button primary" autoFocus disabled={busy} onClick={onContinue}><Icon kind="repeat" /> Offene Karten üben</button>
+        : otherOpen > 0 && !goalReached ? <button className="button primary" autoFocus disabled={busy} onClick={() => onStart("learn")}>Nächste Einheit <Icon kind="forward" /></button>
+        : next}
+      <button className="button" onClick={onBack}>Zum Set</button>
     </div>
   </section>;
 
@@ -261,9 +281,10 @@ function Finish({ session, workspace, busy, mastered, open, front, onBack, onSta
     <h2>Paukrunde beendet</h2>
     <p>{session.correct} von {session.initial.length} Antworten waren richtig.</p>
     {session.mistakes.length > 0 && <div className="summary"><div className="open"><h3><Icon kind="repeat" /> Nochmals üben <span>{session.mistakes.length}</span></h3><ul>{session.mistakes.map(id => <li key={id}>{front(id)}</li>)}</ul></div></div>}
+    <GoalBanner workspace={workspace} now={now} />
     <div className="actions">
-      {session.mistakes.length > 0 && <button className="button primary" autoFocus disabled={busy} onClick={() => onStart("cram", "mistakes")}><Icon kind="bolt" /> Fehler pauken</button>}
-      <button className={"button" + (session.mistakes.length ? "" : " primary")} autoFocus={!session.mistakes.length} onClick={onBack}>Zum Set</button>
+      {session.mistakes.length > 0 ? <button className="button primary" autoFocus disabled={busy} onClick={() => onStart("cram", "mistakes")}><Icon kind="bolt" /> Fehler pauken</button> : next}
+      <button className="button" onClick={onBack}>Zum Set</button>
     </div>
   </section>;
 
@@ -272,6 +293,7 @@ function Finish({ session, workspace, busy, mastered, open, front, onBack, onSta
     <h2>{session.initial.length ? "Wiederholung erledigt" : "Nichts fällig"}</h2>
     <p>{session.initial.length ? plural(session.initial.length, "Karte", "Karten") + " wiederholt." : "Für diese Auswahl ist gerade nichts zu wiederholen."}
       {nextDue ? " Die nächste kommt am " + dateFormat.format(nextDue) + "." : ""}</p>
-    <div className="actions"><button className="button primary" autoFocus onClick={onBack}>Zum Set</button></div>
+    <GoalBanner workspace={workspace} now={now} />
+    <div className="actions">{next}<button className="button" onClick={onBack}>Zum Set</button></div>
   </section>;
 }

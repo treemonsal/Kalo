@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import { secure, type Deck, type Direction, type Workspace } from "../../lib/learning";
+import { examIn, openCards, type Step } from "../../lib/progress";
+import type { PartnerSummary } from "../../lib/social";
+import { DailyHero, NextStepCard, PartnerCard, SubjectLevels } from "./progress-ui";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
 import { dateFormat, plural } from "./types";
@@ -9,13 +12,13 @@ import { dateFormat, plural } from "./types";
 export type DueSet = { deck: Deck; side: Direction; count: number; oldest: number };
 export type Recent = { title: string; mode: string; detail: string; progress: number; onOpen: () => void };
 type Props = {
-  workspace: Workspace; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number;
-  recent?: Recent;
+  workspace: Workspace; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
+  recent?: Recent; step: Step; partner?: PartnerSummary | null; onStep: (step: Step) => void; onGoal: () => void;
   unsaved?: { title: string; onOpen: () => void; onDiscard: () => void };
   onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onImport: () => void; onChat: () => void; onCreate: () => void;
 };
 
-export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, recent, unsaved, onReview, onOpenDeck, onImport, onChat, onCreate }: Props) {
+export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, partner, onStep, onGoal, unsaved, onReview, onOpenDeck, onImport, onChat, onCreate }: Props) {
   const [search, setSearch] = useState("");
   const query = search.trim().toLocaleLowerCase("de-CH");
   const decks = workspace.decks.filter(item => !query ||
@@ -23,6 +26,8 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       .some(value => value.toLocaleLowerCase("de-CH").includes(query)));
   const cardCount = workspace.decks.reduce((total, deck) => total + deck.cards.length, 0);
   const learned = workspace.decks.reduce((total, deck) => total + deck.cards.filter(card => secure(workspace, card.id, "front")).length, 0);
+  const exams = workspace.decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
+    .filter(item => item.days !== null && item.days <= 30).sort((a, b) => a.days! - b.days!);
   const dueByDeck = new Map<string, number>();
   dueSets.forEach(item => dueByDeck.set(item.deck.id, (dueByDeck.get(item.deck.id) ?? 0) + item.count));
 
@@ -35,6 +40,8 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       </div>
       <button className="button" onClick={onImport}><Icon kind="import" /> Importieren</button>
     </header>
+
+    {workspace.decks.length > 0 && <DailyHero workspace={workspace} now={now} onGoal={onGoal} />}
 
     {unsaved && <div className="notice-card">
       <span className="notice-icon"><Icon kind="edit" /></span>
@@ -50,6 +57,7 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       </span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
     </button>}
+    {!recent && <NextStepCard step={step} onStep={onStep} />}
 
     {dueSets.length > 0 ? <section className="due-card" aria-labelledby="due">
       <div className="due-head">
@@ -63,6 +71,16 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       </li>)}</ul>
     </section> : workspace.decks.length > 0 && <p className="quiet-line"><Icon kind="check" /> Alles wiederholt{Number.isFinite(nextReview) ? ". Nächste Wiederholung " + dateFormat.format(nextReview) : ""}</p>}
 
+    {exams.length > 0 && <section className="exam-list" aria-label="Prüfungen">{exams.map(({ deck, days, open }) =>
+      <button key={deck.id} className="exam-card" data-soon={days! <= 3} onClick={() => onOpenDeck(deck)}>
+        <span className="exam-days"><strong>{days === 0 ? "Heute" : days}</strong>{days ? <small>{days === 1 ? "Tag" : "Tage"}</small> : null}</span>
+        <span className="exam-copy"><strong>Prüfung {deck.title}</strong><span>{open ? open + " Karten sitzen noch nicht" : "Alle Karten sitzen"}</span></span>
+        <Icon kind="chevronRight" />
+      </button>)}</section>}
+
+    {partner && <PartnerCard partner={partner} />}
+    <SubjectLevels workspace={workspace} />
+
     <section aria-labelledby="sets" className="sets">
       <div className="section-head"><h2 id="sets">Meine Sets</h2>
         {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Bibliothek durchsuchen</span>
@@ -73,7 +91,8 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
         const due = dueByDeck.get(deck.id) ?? 0;
         return <button className="deck-tile" key={deck.id} onClick={() => onOpenDeck(deck)}>
           <span className="tile-title">{deck.title}</span>
-          <span className="tile-meta">{plural(deck.cards.length, "Karte", "Karten")}{due > 0 && <span className="due-badge">{due} fällig</span>}</span>
+          <span className="tile-meta">{deck.subject && <span>{deck.subject} ·</span>}{plural(deck.cards.length, "Karte", "Karten")}{due > 0 && <span className="due-badge">{due} fällig</span>}
+            {examIn(deck, now) !== null && <span className="exam-badge"><Icon kind="calendar" size="s" /> {examIn(deck, now) === 0 ? "heute" : "in " + examIn(deck, now) + " T."}</span>}</span>
           <span className="tile-progress"><span className="meter"><i style={{ width: (done / Math.max(1, deck.cards.length)) * 100 + "%" }} /></span><span>{done} sitzen</span></span>
         </button>;
       })}</div>

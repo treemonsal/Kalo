@@ -35,3 +35,12 @@ Bei fehlendem Plugin kannst du den Lernauftrag mit den Karten kopieren oder erst
 | `lib/service.ts` | API für die Website und das ChatGPT Plugin (MCP) |
 | `app/kalo/` | Oberfläche, eine Datei pro Ansicht (`home-view`, `deck-view`, `study-view` ...) |
 | `tests/` | Tests für Lernlogik, API und Wischgesten |
+
+## Lernerinnerungen per Push
+
+Kalo kann morgens an fällige Karten und abends an eine gefährdete Serie erinnern, auch wenn die App geschlossen ist. Dafür braucht der Server:
+
+1. Ein Schlüsselpaar: `node scripts/vapid-keys.mjs`. Die beiden Werte als Secrets `VAPID_PUBLIC_KEY` und `VAPID_PRIVATE_KEY` hinterlegen, optional `VAPID_SUBJECT` (zum Beispiel `mailto:du@example.com`).
+2. Einen Cron-Trigger alle 15 Minuten (`*/15 * * * *`), der den `scheduled`-Handler in `worker/index.ts` aufruft.
+
+Ohne Schlüssel bleibt Kalo bei den bisherigen Erinnerungen, die nur bei geöffneter App kommen. Auf dem iPhone funktionieren Push-Mitteilungen nur, wenn Kalo über das Teilen-Menü zum Home-Bildschirm hinzugefügt wurde.

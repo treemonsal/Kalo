@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace } from "../../lib/learning";
+import { examIn } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
 import { plural } from "./types";
 
@@ -10,6 +12,7 @@ type Props = {
   onDirection: (value: Direction) => void; onFilter: (value: Filter) => void; onWriting: (value: boolean) => void;
   onHome: () => void; onEdit: () => void; onCards: (ids: string[]) => void; onStart: (mode: "learn" | "cram" | "review") => void;
   onChat: () => void; onResume?: () => void; onStar: (cardId: string, starred: boolean) => void;
+  shareToken?: string; onMeta: (meta: { examDate?: string | null; subject?: string | null }) => void; onShare: () => void; onDuel: () => void;
 };
 
 export default function DeckView(props: Props) {
@@ -21,6 +24,17 @@ export default function DeckView(props: Props) {
   const done = deck.cards.filter(card => secure(workspace, card.id, direction)).length;
   const open = visible.filter(card => (workspace.progress[card.id + ":" + direction]?.streak ?? 0) < 2).length;
   const starred = deck.cards.filter(card => card.starred).length;
+  const exam = examIn(deck, time);
+  const subjects = [...new Set(workspace.decks.map(item => item.subject).filter(Boolean))] as string[];
+  const [subject, setSubject] = useState(deck.subject ?? "");
+  const [imports, setImports] = useState<number | null>(null);
+  useEffect(() => {
+    if (!props.shareToken) return;
+    let active = true;
+    fetch("/api/workspace?share=" + props.shareToken, { cache: "no-store" }).then(r => r.ok ? r.json() as Promise<{ share?: { imports: number } }> : null)
+      .then(body => { if (active && body?.share) setImports(body.share.imports); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [props.shareToken]);
   const modes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
     { mode: "cards", icon: "cards", title: "Karten", text: "Umdrehen und wischen" },
     { mode: "learn", icon: "target", title: "Lernen", text: open ? plural(Math.min(open, 8), "Karte", "Karten") + " in der nächsten Einheit" : "Alles sitzt" },
@@ -56,6 +70,20 @@ export default function DeckView(props: Props) {
       </button>)}
     </div>
 
+    <section className="panel plan-panel" aria-label="Prüfung und Fach">
+      <label>Prüfung am<input type="date" value={deck.examDate ?? ""} onChange={event => props.onMeta({ examDate: event.target.value || null })} /></label>
+      <label>Fach<input list="subjects" value={subject} maxLength={40} placeholder="Zum Beispiel W&G" onChange={event => setSubject(event.target.value)}
+        onBlur={() => { if ((deck.subject ?? "") !== subject.trim()) props.onMeta({ subject: subject.trim() || null }); }} /></label>
+      <datalist id="subjects">{subjects.map(item => <option key={item} value={item} />)}</datalist>
+      {exam !== null && <p className="exam-note" data-soon={exam <= 3}><Icon kind="calendar" /> {exam === 0 ? "Prüfung heute" : "Noch " + exam + (exam === 1 ? " Tag" : " Tage")} · {deck.cards.length - done ? deck.cards.length - done + " Karten sitzen noch nicht" : "alles sitzt"}</p>}
+    </section>
+
+    <div className="actions social-actions">
+      <button className="button" onClick={props.onShare}><Icon kind="share" /> Teilen{imports ? " · " + imports + (imports === 1 ? " nutzt es" : " nutzen es") : ""}</button>
+      <button className="button" onClick={props.onDuel}><Icon kind="swords" /> Duell</button>
+      <button className="button" onClick={props.onChat}><Icon kind="chat" /> Mit ChatGPT</button>
+    </div>
+
     <details className="panel options-panel">
       <summary><span>Lernoptionen</span><span className="summary-value">{filter === "starred" ? "Markierte Karten" : filter === "mistakes" ? "Letzte Fehler" : "Alle Karten"}{direction === "back" ? " · Rückseite zuerst" : ""}{writing ? " · Nur schreiben" : ""}</span></summary>
       <div className="options">
@@ -67,8 +95,7 @@ export default function DeckView(props: Props) {
     {!visible.length && <p className="quiet-line"><Icon kind="alert" /> In dieser Auswahl sind keine Karten. Wähle unter Lernoptionen eine andere Auswahl.</p>}
 
     <section className="set-list" aria-labelledby="cards-title">
-      <div className="section-head"><h2 id="cards-title">Karten <span className="count">{deck.cards.length}</span></h2>
-        <button className="button small" onClick={props.onChat}><Icon kind="chat" /> Mit ChatGPT lernen</button></div>
+      <div className="section-head"><h2 id="cards-title">Karten <span className="count">{deck.cards.length}</span></h2></div>
       <ul className="panel card-rows">{deck.cards.map(item => <li key={item.id}>
         <span className="row-front">{item.front}</span><span className="row-back">{item.back}</span>
         <button className="icon-button star" aria-label={(item.starred ? "Markierung entfernen: " : "Markieren: ") + item.front} aria-pressed={item.starred}
