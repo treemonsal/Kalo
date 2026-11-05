@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MAX_LEARN_ROUNDS, dayOf, matches, question, secure, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
 import { GoalBanner, NextStepActions } from "./progress-ui";
@@ -65,6 +65,7 @@ type Props = {
 export default function StudyView({ workspace, session, busy, mutate, now, onBack, onStart, onStep, onHome }: Props) {
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
+  const swipeStart = useRef<number | null>(null);
   const q = question(workspace);
   const current = positionOf(session);
   const shown = result && (result.to === current || (result.to === null && result.from === current)) ? result : null;
@@ -131,10 +132,15 @@ export default function StudyView({ workspace, session, busy, mutate, now, onBac
   const view = shown?.q ?? q;
   if (!view) return header;
   return <>{header}
-    <section className="panel question" data-gold={view.gold || undefined} aria-labelledby="prompt">
+    <section className="panel question" data-gold={view.gold || undefined} aria-labelledby="prompt"
+      onPointerDown={event => { swipeStart.current = shown && shown.to ? event.clientX : null; }}
+      onPointerUp={event => {
+        // On a result, a swipe to the left continues, like turning a page.
+        if (swipeStart.current !== null && swipeStart.current - event.clientX > 70) setResult(null);
+        swipeStart.current = null;
+      }}>
       <div className="question-content" key={"prompt:" + (shown ? shown.from : current)}>
-        <span className="question-top"><span className="eyebrow">{view.kind === "choice" ? "Antwort wählen" : view.kind === "write" ? "Antwort schreiben" : "Antwort abrufen"}</span>
-          {view.gold && <span className="gold-badge"><Icon kind="sparkle" filled /> Goldkarte · zählt doppelt</span>}</span>
+        {view.gold && <span className="question-top"><span className="gold-badge"><Icon kind="sparkle" filled /> Gold · zählt doppelt</span></span>}
         <h2 id="prompt" className="prompt" data-size={textSize(view.prompt)}>{view.prompt}</h2>
       </div>
       {view.kind === "choice"
@@ -180,7 +186,7 @@ function Choices({ q, shown, busy, onPick, onNext }: { q: Question; shown: Resul
     })}</div>}
     actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")}>{shown.correct ? "Richtig" : "Noch nicht ganz"}
       {shown.mastered && <span className="mastered-stamp"><Icon kind="sparkle" filled /> Gemeistert</span>}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
-      : <><span className="action-hint">Wähle eine Antwort</span><span /></>} />;
+      : <><span /><span /></>} />;
 }
 
 type AnswerProps = {
@@ -226,7 +232,7 @@ function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
       <button className="button primary" disabled={busy} autoFocus={finePointer()} onClick={() => void submit(answer, false, false)}>Weiter <Icon kind="forward" /></button></>} />;
 
   if (phase === "input") return <Frame
-    zone={<div className="answer-box placeholder"><p>Überlege dir die Antwort. Deck sie danach auf und bewerte dich ehrlich.</p></div>}
+    zone={<div className="answer-box placeholder" aria-label="Antwort im Kopf abrufen"><Icon kind="eye" size="l" /></div>}
     actions={<><span /><button className="button primary" autoFocus={finePointer()} onClick={() => setPhase("revealed")}>Antwort aufdecken <Key>↵</Key></button></>} />;
 
   return <Frame

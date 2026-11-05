@@ -13,7 +13,7 @@ export default function ImportView({ room, onBack, onAccept, onError }: Props) {
 
   return <>
     <div className="view-bar"><button className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
-    <header className="page-head"><div><span className="eyebrow">Kartensets</span><h1>Text importieren</h1>
+    <header className="page-head"><div><h1>Text importieren</h1>
       <p className="lead">Füge eine Liste ein oder öffne eine Datei aus Quizlet, Excel oder einer Tabelle.</p></div></header>
     <section className="panel flow">
       <label>Karten als Text<textarea rows={7} placeholder={"Frage\tAntwort"} value={paste} onChange={event => { setPaste(event.target.value); setImported(null); }} /></label>

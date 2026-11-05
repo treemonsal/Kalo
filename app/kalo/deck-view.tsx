@@ -36,10 +36,10 @@ export default function DeckView(props: Props) {
     return () => { active = false; };
   }, [props.shareToken]);
   const modes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
-    { mode: "cards", icon: "cards", title: "Karten", text: "Umdrehen und wischen" },
-    { mode: "learn", icon: "target", title: "Lernen", text: open ? plural(Math.min(open, 8), "Karte", "Karten") + " in der nächsten Einheit" : "Alles sitzt" },
-    { mode: "cram", icon: "bolt", title: "Pauken", text: "Alle Karten direkt abfragen" },
-    { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " neu bereit" : "Nichts fällig" },
+    { mode: "cards", icon: "cards", title: "Karten", text: String(visible.length) },
+    { mode: "learn", icon: "target", title: "Lernen", text: open ? Math.min(open, 8) + " neu" : "0 neu" },
+    { mode: "cram", icon: "bolt", title: "Pauken", text: String(visible.length) },
+    { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " bereit" : "0" },
   ];
 
   return <>
@@ -49,7 +49,6 @@ export default function DeckView(props: Props) {
     </div>
     <header className="page-head">
       <div>
-        <span className="eyebrow">Kartenset</span>
         <h1>{deck.title}</h1>
         <div className="deck-summary">
           <span className="meter"><i style={{ width: (done / Math.max(1, deck.cards.length)) * 100 + "%" }} /></span>
@@ -59,20 +58,20 @@ export default function DeckView(props: Props) {
     </header>
 
     {props.onResume && <button className="continue-card compact" onClick={props.onResume}>
-      <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Dort weitermachen, wo du aufgehört hast</strong></span>
+      <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Weitermachen</strong></span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
     </button>}
 
     <div className="study-modes">
       {modes.map(item => <button key={item.mode} className="mode" data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
         onClick={() => item.mode === "cards" ? props.onCards(visible.map(c => c.id)) : props.onStart(item.mode)}>
-        <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small>{item.text}</small>
+        <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small className="mode-count">{item.text}</small>
       </button>)}
     </div>
 
     <section className="panel plan-panel" aria-label="Prüfung und Fach">
-      <label>Prüfung am<input type="date" value={deck.examDate ?? ""} onChange={event => props.onMeta({ examDate: event.target.value || null })} /></label>
-      <label>Fach<input list="subjects" value={subject} maxLength={40} placeholder="Zum Beispiel W&G" onChange={event => setSubject(event.target.value)}
+      <label><span className="label-icon"><Icon kind="calendar" size="s" /> Prüfung</span><input type="date" value={deck.examDate ?? ""} onChange={event => props.onMeta({ examDate: event.target.value || null })} /></label>
+      <label><span className="label-icon"><Icon kind="library" size="s" /> Fach</span><input list="subjects" aria-label="Fach" value={subject} maxLength={40} placeholder="Zum Beispiel W&G" onChange={event => setSubject(event.target.value)}
         onBlur={() => { if ((deck.subject ?? "") !== subject.trim()) props.onMeta({ subject: subject.trim() || null }); }} /></label>
       <datalist id="subjects">{subjects.map(item => <option key={item} value={item} />)}</datalist>
       {exam !== null && <p className="exam-note" data-soon={exam <= 3}><Icon kind="calendar" /> {exam === 0 ? "Prüfung heute" : "Noch " + exam + (exam === 1 ? " Tag" : " Tage")} · {deck.cards.length - done ? deck.cards.length - done + " Karten sitzen noch nicht" : "alles sitzt"}</p>}
@@ -81,7 +80,7 @@ export default function DeckView(props: Props) {
     <div className="actions social-actions">
       <button className="button" onClick={props.onShare}><Icon kind="share" /> Teilen{imports ? " · " + imports + (imports === 1 ? " nutzt es" : " nutzen es") : ""}</button>
       <button className="button" onClick={props.onDuel}><Icon kind="swords" /> Duell</button>
-      <button className="button" onClick={props.onChat}><Icon kind="chat" /> Mit ChatGPT</button>
+      <button className="button" onClick={props.onChat}><Icon kind="chat" /> ChatGPT</button>
     </div>
 
     <details className="panel options-panel">

@@ -240,8 +240,29 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (view !== "home" && !main.current?.contains(document.activeElement)) main.current?.focus({ preventScroll: true });
   }, [view]);
 
+  // Views live in the browser history, so the native back gesture (iPhone edge swipe, Android back) works.
+  const restorable = useRef({ editor: false, cards: false, duel: false });
+  useEffect(() => { restorable.current = { editor: Boolean(editor), cards: Boolean(cardsStart), duel: Boolean(duelToken) }; });
+  useEffect(() => {
+    const pop = (event: PopStateEvent) => {
+      const state = event.state as { kaloView?: View; deckId?: string } | null;
+      const ready = restorable.current;
+      let next: View = state?.kaloView ?? "home";
+      if (next === "editor" && !ready.editor) next = "home";
+      if (next === "cards" && !ready.cards) next = state?.deckId ? "deck" : "home";
+      if (next === "duel" && !ready.duel) next = "home";
+      setProblem(null);
+      if (state?.deckId !== undefined) setDeckId(state.deckId);
+      setView(next);
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  useEffect(() => { history.replaceState({ kaloView: view, deckId }, ""); }, [view, deckId]);
+
   function navigate(next: View) {
     setProblem(null);
+    if (next !== view) history.pushState({ kaloView: next, deckId }, "");
     setView(next);
   }
 
@@ -462,6 +483,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   }
 
   const libraryView = view !== "chat" && view !== "settings";
+  const creating = view === "editor" || view === "import";
   const draftCount = data?.drafts.length ?? 0;
 
   return (
@@ -491,7 +513,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
           onOpenDeck={item => { setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck"); }}
-          onImport={() => importText("new")} onChat={() => openChat()} onCreate={() => edit()} />}
+          onChat={() => openChat()} onCreate={() => edit()} />}
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
@@ -501,7 +523,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           shareToken={data?.published?.[deck.id]} onMeta={meta => void mutate({ type: "setDeckMeta", deckId: deck.id, ...meta }, { queue: true })}
           onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
 
-        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} onChange={changeEditor} onSave={save}
+        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")}
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
@@ -547,7 +569,11 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           <button aria-current={libraryView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="library" /><span>Bibliothek</span></button>
           <button aria-current={view === "chat" ? "page" : undefined} onClick={() => openChat()}><Icon kind="chat" /><span>ChatGPT</span>{draftCount > 0 && <span className="badge" aria-label={draftCount + " Entwürfe"}>{draftCount}</span>}</button>
         </nav>
-        <button className="nav-create" aria-label="Neues Set erstellen" title="Neues Set" onClick={() => { setDeckId(""); edit(); }}><Icon kind="plus" /></button>
+        <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
+          onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
+          {/* Plus turns into minus while an editor is open: the vertical stroke folds away. */}
+          <svg className="icon-svg plus-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /><path className="pm-vertical" d="M12 5v14" /></svg>
+        </button>
       </div>
       {confirmDialog}
       {celebrate && <div className="goal-celebration" role="status">

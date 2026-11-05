@@ -23,6 +23,16 @@ export function GoalRing({ points, goal, size = 64 }: { points: number; goal: nu
   </span>;
 }
 
+/** How much of a set sits, as a small ring with the percentage. */
+export function MasteryRing({ share }: { share: number }) {
+  const radius = 15;
+  const length = 2 * Math.PI * radius;
+  return <span className="mastery-ring" data-full={share >= 1} aria-hidden="true">
+    <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r={radius} className="ring-track" /><circle cx="18" cy="18" r={radius} className="ring-fill" strokeDasharray={length} strokeDashoffset={length * (1 - share)} /></svg>
+    <span>{share >= 1 ? <Icon kind="check" size="s" /> : Math.round(share * 100)}</span>
+  </span>;
+}
+
 /** Today's goal, the streak and the last seven days at a glance. */
 export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; now: number; onGoal: () => void }) {
   const goal = goalOf(workspace);
@@ -34,14 +44,14 @@ export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; no
     <button className="hero-goal" onClick={onGoal} aria-label="Tagesziel ändern">
       <GoalRing points={today.points} goal={goal} />
       <span className="hero-copy">
-        <strong>{left ? "Noch " + left + (left === 1 ? " Karte" : " Karten") : "Tagesziel erreicht"}</strong>
-        <span>{left ? "bis zum Tagesziel" : today.cards + " Karten heute"}</span>
+        <strong>{left ? left + " übrig" : "Geschafft"}</strong>
+        <span>Tagesziel</span>
       </span>
     </button>
     <div className="hero-streak" data-risk={current.atRisk} data-active={current.days > 0}>
       <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span>
-      <span className="hero-copy"><strong>{current.days} {current.days === 1 ? "Tag" : "Tage"}</strong>
-        <span>{current.atRisk ? "Serie heute halten" : current.days ? "Serie" : "Starte eine Serie"}</span></span>
+      <span className="hero-copy"><strong>{current.days}</strong>
+        <span>{current.atRisk ? "Serie halten" : current.days === 1 ? "Tag Serie" : "Tage Serie"}</span></span>
     </div>
     <div className="week-strip" aria-label={"Diese Woche: " + summary.cards + " Karten, " + summary.secured + " neu sicher, " + summary.minutes + " Minuten"}>
       {summary.days.map(item => <span key={item.key} className="week-day" data-reached={item.reached} data-today={item.key === dayOf(now)}
@@ -50,8 +60,12 @@ export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; no
         <small>{weekday.format(Date.parse(item.key + "T12:00:00Z"))}</small>
       </span>)}
     </div>
-    <p className="week-line">Diese Woche {summary.cards} Karten · {summary.secured} neu sicher{summary.minutes > 0 ? " · " + (summary.minutes < 60 ? summary.minutes + " min" : Math.floor(summary.minutes / 60) + " h " + (summary.minutes % 60) + " min") : ""}
-      {summary.previousCards > 0 && summary.cards > summary.previousCards ? " · mehr als letzte Woche" : ""}</p>
+    <p className="week-line" aria-hidden="true">
+      <span title="Karten diese Woche"><Icon kind="cards" size="s" /> {summary.cards}</span>
+      <span title="Neu sicher diese Woche"><Icon kind="sparkle" size="s" /> {summary.secured}</span>
+      {summary.minutes > 0 && <span title="Lernzeit diese Woche"><Icon kind="clock" size="s" /> {summary.minutes < 60 ? summary.minutes + " min" : Math.floor(summary.minutes / 60) + " h " + (summary.minutes % 60)}</span>}
+      {summary.previousCards > 0 && summary.cards > summary.previousCards && <span className="rating-known" title="Mehr als letzte Woche"><Icon kind="up" size="s" /></span>}
+    </p>
   </section>;
 }
 

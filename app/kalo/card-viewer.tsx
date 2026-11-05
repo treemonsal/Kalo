@@ -170,11 +170,11 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
       <Flashcard ref={flashcard} entry={entry} flipped={flipped}
         card={{ key: card.id, question: card[direction], answer: card[other] }}
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
-        onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
+        hint={position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
       <div className="swipe-status">
         {last ? <span className={last.known ? "rating-known" : "rating-again"} key={last.id}>
           <Icon kind={last.known ? "check" : "repeat"} /> {last.known ? "Ich kann das" : "Später üben"}</span>
-          : <span className="muted swipe-hint"><Icon kind="back" size="s" /> Später üben · Ich kann das <Icon kind="forward" size="s" /></span>}
+          : <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>}
         {undoButton}
       </div>
       <div className="swipe-actions">
@@ -183,7 +183,7 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
       </div>
       <div className="card-controls">
         <button className="icon-button" disabled={position === 0} aria-label="Vorherige Karte" title="Vorherige Karte" onClick={() => step(-1)}><Icon kind="chevronLeft" /></button>
-        <button className="pill-button" onClick={() => onChat(card.id)}><Icon kind="chat" /> Erklären lassen</button>
+        <button className="icon-button" aria-label="Karte mit ChatGPT erklären lassen" title="Mit ChatGPT erklären" onClick={() => onChat(card.id)}><Icon kind="chat" /></button>
         <button className="icon-button" disabled={position === visible.length - 1} aria-label="Nächste Karte ohne Bewertung" title="Nächste Karte" onClick={() => step(1)}><Icon kind="chevronRight" /></button>
       </div>
     </>}

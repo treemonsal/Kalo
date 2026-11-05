@@ -7,10 +7,11 @@ import { row, type EditCard, type Editor } from "./types";
 type Props = {
   editor: Editor; busy: boolean;
   onChange: (update: (editor: Editor) => Editor) => void;
-  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onDelete: () => void;
+  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onImportNew: () => void; onDelete: () => void;
 };
 
-export default function EditorView({ editor, busy, onChange, onSave, onBack, onImport, onDelete }: Props) {
+export default function EditorView({ editor, busy, onChange, onSave, onBack, onImport, onImportNew, onDelete }: Props) {
+  const fresh = !editor.deckId && !editor.draftId && editor.cards.every(card => !card.front.trim() && !card.back.trim());
   const update = (rowId: string, value: Partial<EditCard>) =>
     onChange(current => ({ ...current, cards: current.cards.map(c => c.row === rowId ? { ...c, ...value } : c) }));
   const move = (index: number, offset: number) => onChange(current => {
@@ -22,8 +23,13 @@ export default function EditorView({ editor, busy, onChange, onSave, onBack, onI
 
   return <form onSubmit={onSave}>
     <div className="view-bar"><button type="button" className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
-    <header className="page-head"><div><span className="eyebrow">Karteneditor</span><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
-      <p className="lead">Änderungen werden auf diesem Gerät mitgesichert, bis du speicherst.</p></div></header>
+    <header className="page-head"><div><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
+</div></header>
+    {fresh && <button type="button" className="import-card" onClick={onImportNew}>
+      <span className="mode-icon"><Icon kind="import" /></span>
+      <span className="continue-copy"><strong>Liste importieren</strong><span className="muted">Quizlet, Excel, CSV</span></span>
+      <Icon kind="chevronRight" />
+    </button>}
     <div className="panel editor-title"><label>Setname<input required maxLength={120} placeholder="Zum Beispiel Englisch Wortschatz" value={editor.title} onChange={event => onChange(current => ({ ...current, title: event.target.value }))} /></label></div>
     <div className="edit-list">
       {editor.cards.map((item, idx) => <div className="panel edit-card" key={item.row}>

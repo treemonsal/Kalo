@@ -27,7 +27,7 @@ export default function ChatView({ deck, presetCard, confirm, drafts, busy, chat
 
   return <>
     {deck && <div className="view-bar"><button className="icon-button" aria-label={"Zurück zu " + deck.title} title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>}
-    <header className="page-head"><div><span className="eyebrow">Dein bestehender Chat</span><h1>Mit ChatGPT lernen</h1></div>
+    <header className="page-head"><h1>Mit ChatGPT lernen</h1>
       <a className="button primary" href={chatUrl} target="_blank" rel="noreferrer">ChatGPT öffnen <Icon kind="external" /></a></header>
     {deck && <section className="panel flow">
       <h2>{deck.title}</h2><p>Wähle bis zu {LIMIT} Karten für diesen Chat aus. Der Freigabecode gilt eine Stunde.</p>

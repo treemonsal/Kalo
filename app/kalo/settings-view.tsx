@@ -63,24 +63,25 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
   }
 
   return <>
-    <header className="page-head"><div><span className="eyebrow">Kalo</span><h1>Einstellungen</h1></div></header>
+    <header className="page-head"><h1>Einstellungen</h1></header>
     <section className="panel flow"><h2>Darstellung</h2>
-      <fieldset className="appearance"><legend>Farbschema</legend>
-        {([["system", "System"], ["light", "Hell"], ["dark", "Dunkel"]] as const).map(([value, label]) =>
-          <label key={value}><input type="radio" name="appearance" value={value} checked={theme === value} onChange={() => onTheme(value)} /><span>{label}</span></label>)}
-      </fieldset>
-      <p className="muted">Die Auswahl gilt für diesen Browser.</p>
+      <div className="setting"><span className="setting-label" id="scheme">Farbschema</span>
+        <div className="appearance" role="radiogroup" aria-labelledby="scheme">
+          {([["system", "System"], ["light", "Hell"], ["dark", "Dunkel"]] as const).map(([value, label]) =>
+            <label key={value}><input type="radio" name="appearance" value={value} checked={theme === value} onChange={() => onTheme(value)} /><span>{label}</span></label>)}
+        </div></div>
     </section>
     <section className="panel flow"><h2>Tagesziel</h2>
-      <fieldset className="appearance"><legend>Karten pro Tag</legend>
-        {GOALS.map(value => <label key={value}><input type="radio" name="goal" checked={goalOf(workspace) === value} onChange={() => void mutate({ type: "setGoal", goal: value })} /><span>{value}</span></label>)}
-      </fieldset>
-      <p className="muted">Jede bearbeitete Karte zählt, Goldkarten doppelt. Erreichst du das Ziel, wächst deine Serie. Einen verpassten Tag pro Woche überbrückt ein Ruhetag.</p>
+      <div className="setting"><span className="setting-label" id="goal">Karten pro Tag</span>
+        <div className="appearance" role="radiogroup" aria-labelledby="goal">
+          {GOALS.map(value => <label key={value}><input type="radio" name="goal" checked={goalOf(workspace) === value} onChange={() => void mutate({ type: "setGoal", goal: value })} /><span>{value}</span></label>)}
+        </div></div>
+      <p className="muted">Goldkarten zählen doppelt. Ein verpasster Tag pro Woche gilt als Ruhetag.</p>
       <label className="check"><input type="checkbox" checked={sound} onChange={event => { writeStored(SOUND_KEY, event.target.checked ? "on" : "off"); if (event.target.checked) play("correct"); }} /> Töne beim Lernen</label>
     </section>
     <section className="panel flow"><h2>Lernerinnerungen</h2>
       {pushKey ? <>
-        <p>Morgens erinnert dich Kalo an fällige Karten, abends nur, wenn deine Serie sonst endet. Höchstens zwei Mitteilungen pro Tag.</p>
+        <p>Morgens bei fälligen Karten, abends nur für deine Serie.</p>
         <div className="two">
           <label>Morgens<select value={morning} onChange={event => void mutate({ type: "pushTimes", morning: event.target.value, evening })}>{TIMES.map(t => <option key={t}>{t}</option>)}</select></label>
           <label>Abends<select value={evening} onChange={event => void mutate({ type: "pushTimes", morning, evening: event.target.value })}>{TIMES.map(t => <option key={t}>{t}</option>)}</select></label>
@@ -90,7 +91,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
             : <button className="button primary" onClick={() => void reminderAction(enablePush)}><Icon kind="bell" /> Erinnerungen einschalten</button>}
         </div>
       </> : <>
-        <p>Wenn Kalo geöffnet ist und Karten fällig sind, erhältst du höchstens eine Mitteilung pro Tag. Erinnerungen bei geschlossener App sind auf diesem Server noch nicht eingerichtet.</p>
+        <p>Nur solange Kalo geöffnet ist, höchstens einmal am Tag.</p>
         <div className="actions">
           <button className="button" onClick={() => void reminderAction(reminders.toggle)}>{reminders.enabled ? "Erinnerungen ausschalten" : "Erinnerungen einschalten"}</button>
           <button className="button" onClick={() => void reminderAction(reminders.test)}>Testmitteilung senden</button>
@@ -99,7 +100,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
     </section>
     <section className="panel flow"><h2>Lernpartner</h2>
       {partner ? <><PartnerCard partner={partner} /><div className="actions"><button className="button" onClick={onLeave}>Partnerschaft beenden</button></div></>
-        : <><p>Lernt jeden Tag beide euer Ziel, wächst eure gemeinsame Serie. Wer aussetzt, lässt den anderen hängen.</p>
+        : <><p>Erreicht ihr beide euer Tagesziel, wächst eure gemeinsame Serie.</p>
           <div className="actions"><button className="button primary" onClick={onInvite}><Icon kind="people" /> Partner einladen</button></div></>}
     </section>
     <section className="panel flow"><h2>Datensicherung</h2><p>Die JSON Datei enthält deine Kartensets und deinen Lernstand.</p>
