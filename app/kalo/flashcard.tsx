@@ -19,6 +19,8 @@ type Props = {
   flipped: boolean;
   /** When this card comes back (undo), it enters from the side it was thrown to. */
   entry?: { key: string; from: -1 | 1 } | null;
+  /** Shows the tap hint, only until the gesture is known. */
+  hint?: boolean;
   onFlip: () => void;
   onSwipe: (known: boolean) => void;
 };
@@ -29,7 +31,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
  * The card follows the finger 1:1, keeps the release velocity, is thrown off in the direction of the swipe
  * and can be caught again mid-flight. The next card waits underneath and grows into place.
  */
-export default function Flashcard({ ref, card, next, flipped, entry, onFlip, onSwipe }: Props) {
+export default function Flashcard({ ref, card, next, flipped, entry, hint, onFlip, onSwipe }: Props) {
   const stage = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLButtonElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -230,8 +232,8 @@ export default function Flashcard({ ref, card, next, flipped, entry, onFlip, onS
       }}
     >
       <span className="card-faces" key={card.key} data-flipped={flipped} aria-hidden="true">
-        <span className="card-face front"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(card.question)}>{card.question}</span><span className="card-hint">Zum Umdrehen tippen</span></span>
-        <span className="card-face back"><span className="eyebrow">Antwort</span><span className="card-copy" data-size={textSize(card.answer)}>{card.answer}</span><span className="card-hint">Zum Umdrehen tippen</span></span>
+        <span className="card-face front"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(card.question)}>{card.question}</span><span className="card-hint">{hint ? "Tippen zum Umdrehen" : ""}</span></span>
+        <span className="card-face back"><span className="eyebrow">Antwort</span><span className="card-copy" data-size={textSize(card.answer)}>{card.answer}</span><span className="card-hint" /></span>
       </span>
       <span className="swipe-stamp known" aria-hidden="true"><Icon kind="check" /> Ich kann das</span>
       <span className="swipe-stamp again" aria-hidden="true"><Icon kind="repeat" /> Später üben</span>

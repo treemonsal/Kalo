@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
-import { deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
+import { dayOf, deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
+import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
+import DuelView from "./duel-view";
+import { shareLink } from "./progress-ui";
+import { play } from "./sound";
 import CardViewer, { type UndoResult } from "./card-viewer";
 import ChatView from "./chat-view";
 import DeckView from "./deck-view";
@@ -69,6 +73,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [busy, setBusy] = useState(false);
   const [time, setTime] = useState(0);
   const [confirm, confirmDialog] = useConfirm();
+  const [duelToken, setDuelToken] = useState("");
+  const [celebrate, setCelebrate] = useState<{ streak: number } | null>(null);
   const dataRef = useRef<Data | null>(null);
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
@@ -85,12 +91,24 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const chatLink = storedChat ?? DEFAULT_CHAT;
 
   const accept = useCallback((next: Data) => {
-    setData(old => {
-      const value = !old || next.revision >= old.revision ? next : old;
-      dataRef.current = value;
-      return value;
-    });
-  }, []);
+    const old = dataRef.current;
+    if (old && next.revision < old.revision) return;
+    // Mutation replies leave out partner and push key; keep the last known ones.
+    const value = { ...next, partner: next.partner === undefined ? old?.partner : next.partner, pushKey: next.pushKey ?? old?.pushKey };
+    dataRef.current = value;
+    setData(value);
+    if (!old) return;
+    const today = dayOf(Date.now());
+    const goal = goalOf(value.workspace);
+    const before = dayStats(old.workspace, today).points;
+    const after = dayStats(value.workspace, today).points;
+    const shown = "kalo-goal:" + accountId;
+    if (before < goal && after >= goal && readStored(shown) !== today) {
+      writeStored(shown, today);
+      play("goal");
+      setCelebrate({ streak: streak(value.workspace, Date.now()).days });
+    }
+  }, [accountId]);
 
   const refresh = useCallback(async (force = false) => {
     const started = Date.now();
@@ -132,6 +150,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       system.removeEventListener("change", syncThemeColor);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!celebrate) return;
+    const timer = window.setTimeout(() => setCelebrate(null), 3_600);
+    return () => window.clearTimeout(timer);
+  }, [celebrate]);
 
   useEffect(() => {
     if (!notice) return;
@@ -178,6 +202,35 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     return task;
   };
 
+  // Links from other people: ?set= (shared set), ?partner= (invite), ?duel= (challenge).
+  const linkHandled = useRef(false);
+  useEffect(() => {
+    if (!data || linkHandled.current) return;
+    linkHandled.current = true;
+    const params = new URLSearchParams(location.search);
+    const set = params.get("set"), partner = params.get("partner"), duel = params.get("duel");
+    if (!set && !partner && !duel) return;
+    history.replaceState(null, "", location.pathname);
+    void (async () => {
+      if (duel) { setDuelToken(duel); setView("duel"); return; }
+      if (set) {
+        const response = await fetch("/api/workspace?share=" + set, { cache: "no-store" }).catch(() => null);
+        const body = await response?.json().catch(() => null) as { share?: { title: string; ownerName: string; count: number; own: boolean }; error?: string } | null;
+        if (!response?.ok || !body?.share) { setProblem({ message: body?.error ?? "Dieser Link ist ungültig oder wurde zurückgezogen." }); return; }
+        const share = body.share;
+        if (!await confirm({ title: "«" + share.title + "» übernehmen?", message: share.ownerName + " teilt " + share.count + " Karten mit dir. Du bekommst eine eigene Kopie mit eigenem Lernstand.", confirm: "Übernehmen" })) return;
+        const result = await mutate({ type: "importShare", token: set });
+        if (result?.deckId) { setDeckId(result.deckId); setView("deck"); setNotice("Set übernommen"); }
+        return;
+      }
+      if (partner && await confirm({ title: "Lernpartner werden?", message: "Ihr seht gegenseitig, ob das Tagesziel erreicht ist, und baut eine gemeinsame Serie auf. Mehr seht ihr nicht.", confirm: "Partner werden" })) {
+        if (await mutate({ type: "acceptPartner", token: partner })) setNotice("Ihr seid jetzt Lernpartner");
+      }
+    })();
+  // Runs once, as soon as the library is loaded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
   const workspace = data?.workspace;
   const deck = workspace?.decks.find(item => item.id === deckId);
   const session = workspace?.session;
@@ -187,8 +240,29 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (view !== "home" && !main.current?.contains(document.activeElement)) main.current?.focus({ preventScroll: true });
   }, [view]);
 
+  // Views live in the browser history, so the native back gesture (iPhone edge swipe, Android back) works.
+  const restorable = useRef({ editor: false, cards: false, duel: false });
+  useEffect(() => { restorable.current = { editor: Boolean(editor), cards: Boolean(cardsStart), duel: Boolean(duelToken) }; });
+  useEffect(() => {
+    const pop = (event: PopStateEvent) => {
+      const state = event.state as { kaloView?: View; deckId?: string } | null;
+      const ready = restorable.current;
+      let next: View = state?.kaloView ?? "home";
+      if (next === "editor" && !ready.editor) next = "home";
+      if (next === "cards" && !ready.cards) next = state?.deckId ? "deck" : "home";
+      if (next === "duel" && !ready.duel) next = "home";
+      setProblem(null);
+      if (state?.deckId !== undefined) setDeckId(state.deckId);
+      setView(next);
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  useEffect(() => { history.replaceState({ kaloView: view, deckId }, ""); }, [view, deckId]);
+
   function navigate(next: View) {
     setProblem(null);
+    if (next !== view) history.pushState({ kaloView: next, deckId }, "");
     setView(next);
   }
 
@@ -273,7 +347,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate("study");
   }
 
-  async function start(mode: Mode, options?: { target: Deck; side: Direction; dueOnly: true }, override?: Filter) {
+  async function start(mode: Mode, options?: { target: Deck; side: Direction; dueOnly?: true }, override?: Filter) {
     const target = options?.target ?? deck;
     if (!target) return;
     const side = options?.side ?? direction;
@@ -314,6 +388,42 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       await navigator.clipboard.writeText(text);
       setNotice("Kopiert");
     } catch { setProblem({ message: "Kopieren ging nicht. Markiere den Text im Feld und kopiere ihn von Hand." }); }
+  }
+
+  function runStep(step: Step) {
+    if (step.kind === "done") { navigate("home"); return; }
+    const target = workspace?.decks.find(item => item.id === step.deckId);
+    if (step.kind === "resume") { resume(); return; }
+    if (!target) return;
+    setDeckId(target.id);
+    if (step.kind === "review") void start("review", { target, side: step.direction, dueOnly: true });
+    else if (step.kind === "learn") void start("learn", { target, side: "front" });
+    else void start("cram", undefined, "mistakes");
+  }
+
+  async function share(url: string, title: string) {
+    const outcome = await shareLink(url, title);
+    if (outcome === "copied") setNotice("Link kopiert");
+    else if (outcome === "failed") setProblem({ message: "Teilen ging nicht. Der Link: " + url });
+  }
+
+  async function publish(target: Deck) {
+    const result = await mutate({ type: "publish", deckId: target.id });
+    if (result?.token) await share(location.origin + "/?set=" + result.token, target.title + " in Kalo");
+  }
+
+  async function createDuel(target: Deck) {
+    const result = await mutate({ type: "createDuel", deckId: target.id });
+    if (result?.token) { setDuelToken(result.token); navigate("duel"); }
+  }
+
+  async function invitePartner() {
+    const result = await mutate({ type: "invitePartner" });
+    if (result?.token) await share(location.origin + "/?partner=" + result.token, "Lernpartner in Kalo");
+  }
+
+  async function leavePartner() {
+    if (await confirm({ title: "Partnerschaft beenden?", message: "Eure gemeinsame Serie endet für beide.", confirm: "Beenden", destructive: true })) void mutate({ type: "leavePartner" });
   }
 
   function returnToDeck() {
@@ -373,6 +483,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   }
 
   const libraryView = view !== "chat" && view !== "settings";
+  const creating = view === "editor" || view === "import";
   const draftCount = data?.drafts.length ?? 0;
 
   return (
@@ -397,19 +508,22 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           : <LibrarySkeleton />)}
 
         {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
-          recent={recent}
+          recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined)}
+          partner={data?.partner} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
           onOpenDeck={item => { setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck"); }}
-          onImport={() => importText("new")} onChat={() => openChat()} onCreate={() => edit()} />}
+          onChat={() => openChat()} onCreate={() => edit()} />}
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
           onHome={() => navigate("home")} onEdit={() => edit(deck)} onCards={ids => openCards(ids)} onStart={mode => void start(mode)}
           onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume : undefined}
-          onStar={(cardId, starred) => void mutate({ type: "star", deckId: deck.id, cardId, starred }, { queue: true })} />}
+          onStar={(cardId, starred) => void mutate({ type: "star", deckId: deck.id, cardId, starred }, { queue: true })}
+          shareToken={data?.published?.[deck.id]} onMeta={meta => void mutate({ type: "setDeckMeta", deckId: deck.id, ...meta }, { queue: true })}
+          onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
 
-        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} onChange={changeEditor} onSave={save}
+        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")}
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
@@ -417,12 +531,17 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           onError={message => setProblem(message ? { message } : null)} />}
 
         {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} deck={deck} start={cardsStart} direction={direction}
+          workspace={workspace!} now={time} onStep={runStep}
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
           onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => openChat(deck, cardId)}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))} />}
 
         {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={busy} mutate={mutate}
-          onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)} />}
+          onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
+          now={time} onStep={runStep} onHome={() => navigate("home")} />}
+
+        {data && view === "duel" && duelToken && <DuelView key={duelToken} token={duelToken} mutate={mutate} onHome={() => navigate("home")}
+          onShare={(token, title) => void share(location.origin + "/?duel=" + token, "Duell: " + title)} />}
 
         {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} drafts={data.drafts} busy={busy} confirm={confirm}
           chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={returnToDeck} onRefresh={() => void refresh(true)}
@@ -430,6 +549,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={busy} theme={theme} chatLink={chatLink} reminders={reminders}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
+          pushKey={data?.pushKey} push={data?.push} partner={data?.partner} onInvite={() => void invitePartner()} onLeave={() => void leavePartner()}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onChatLink={value => {
             const url = safeChatUrl(value);
@@ -449,9 +569,18 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           <button aria-current={libraryView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="library" /><span>Bibliothek</span></button>
           <button aria-current={view === "chat" ? "page" : undefined} onClick={() => openChat()}><Icon kind="chat" /><span>ChatGPT</span>{draftCount > 0 && <span className="badge" aria-label={draftCount + " Entwürfe"}>{draftCount}</span>}</button>
         </nav>
-        <button className="nav-create" aria-label="Neues Set erstellen" title="Neues Set" onClick={() => { setDeckId(""); edit(); }}><Icon kind="plus" /></button>
+        <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
+          onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
+          {/* Plus turns into minus while an editor is open: the vertical stroke folds away. */}
+          <svg className="icon-svg plus-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /><path className="pm-vertical" d="M12 5v14" /></svg>
+        </button>
       </div>
       {confirmDialog}
+      {celebrate && <div className="goal-celebration" role="status">
+        <div className="goal-burst"><span className="celebration-ring"><Icon kind="check" size="l" /></span><i /><i /><i /><i /><i /><i /><i /><i /></div>
+        <strong>Tagesziel erreicht</strong>
+        <span><Icon kind="flame" filled /> Serie {celebrate.streak} {celebrate.streak === 1 ? "Tag" : "Tage"}</span>
+      </div>}
     </div>
   );
 }

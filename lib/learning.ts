@@ -14,7 +14,11 @@ export const deckInput = z.object({
   cards: z.array(cardInput).min(1).max(400),
 });
 const cardShape = cardInput.extend({ id: key });
-const deckShape = deckInput.extend({ id: key, cards: z.array(cardShape).min(1).max(400) });
+const dateKey = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const deckShape = deckInput.extend({
+  id: key, cards: z.array(cardShape).min(1).max(400),
+  examDate: dateKey.nullable().optional(), subject: z.string().trim().max(40).nullable().optional(),
+});
 const directionShape = z.enum(["front", "back"]);
 export const MAX_LEARN_ROUNDS = 4;
 export const NEW_CARDS_PER_DAY = 10;
@@ -28,6 +32,7 @@ const sessionShape = z.object({
   initial: z.array(key).max(400), queue: z.array(key).max(400), tally: z.record(tallyShape),
   cursor: z.number().int().min(0).max(400), round: z.number().int().positive(), done: z.boolean(),
   correct: z.number().int().nonnegative(), mistakes: z.array(key).max(400),
+  combo: z.number().int().nonnegative().optional(), best: z.number().int().nonnegative().optional(),
 });
 const reviewShape = z.object({
   cardId: z.string().max(55), due: z.string().datetime(), lastReview: z.string().datetime().nullable(),
@@ -38,6 +43,13 @@ const reviewShape = z.object({
   lapses: z.number().int().nonnegative(), state: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
   introduced: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
+/** What happened on one calendar day (Zurich). Points count every card, gold cards count twice. */
+const dayShape = z.object({
+  cards: z.number().int().nonnegative(), points: z.number().int().nonnegative(), correct: z.number().int().nonnegative(),
+  secured: z.number().int().nonnegative(), ms: z.number().nonnegative(),
+});
+export type Day = z.infer<typeof dayShape>;
+
 // The last swipe rating with the state before it, so exactly this rating can be taken back.
 const lastSortShape = z.object({
   id: key, deckId: key, cardId: key, direction: directionShape,
@@ -47,6 +59,8 @@ export const workspaceShape = z.object({
   decks: z.array(deckShape).max(80), session: sessionShape.nullable(),
   reviews: z.record(reviewShape), progress: z.record(tallyShape), mistakes: z.record(z.array(key).max(400)),
   lastSort: lastSortShape.nullable().optional(),
+  stats: z.object({ days: z.record(dayShape), lastAt: z.number().optional() }).optional(),
+  goal: z.number().int().min(5).max(200).optional(),
 });
 export type Card = z.infer<typeof cardShape>;
 export type CardInput = z.input<typeof cardInput>;
@@ -69,6 +83,8 @@ export const actionShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rate"), ...position, grade: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }),
   z.object({ type: z.literal("sortCard"), deckId: key, cardId: key, direction: directionShape, known: z.boolean(), sortId: key.optional() }),
   z.object({ type: z.literal("undoSort"), sortId: key }),
+  z.object({ type: z.literal("setGoal"), goal: z.number().int().min(5).max(200) }),
+  z.object({ type: z.literal("setDeckMeta"), deckId: key, examDate: dateKey.nullable().optional(), subject: z.string().trim().max(40).nullable().optional() }),
   z.object({ type: z.literal("restore"), data: workspaceShape }),
 ]);
 export type Action = z.input<typeof actionShape>;
@@ -76,6 +92,27 @@ export type Action = z.input<typeof actionShape>;
 const scheduler = await DefaultScheduler({ version: "FSRS-7", desiredRetention: 0.9,
   enableShortTerm: true, learningSteps: ["1m", "10m"], relearningSteps: ["10m"], enableFuzz: false });
 const dayFormatter = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" });
+/** The Zurich calendar day of a timestamp, as YYYY-MM-DD. */
+export const dayOf = (now: number) => dayFormatter.format(now);
+export const DEFAULT_GOAL = 20;
+/** Breaks shorter than this count as learning time. */
+const ACTIVE_GAP = 5 * 60_000;
+const emptyDay = (): Day => ({ cards: 0, points: 0, correct: 0, secured: 0, ms: 0 });
+
+function track(state: Workspace, now: number, change: { points?: number; correct?: boolean; secured?: boolean; cards?: number }) {
+  const stats = state.stats ??= { days: {} };
+  const key = dayOf(now);
+  const day = stats.days[key] ??= emptyDay();
+  day.cards = Math.max(0, day.cards + (change.cards ?? 1));
+  day.points = Math.max(0, day.points + (change.points ?? 1));
+  if (change.correct) day.correct += 1;
+  if (change.secured) day.secured += 1;
+  if (stats.lastAt && now > stats.lastAt && now - stats.lastAt < ACTIVE_GAP) day.ms += now - stats.lastAt;
+  stats.lastAt = now;
+  // Keep about half a year of history.
+  const keys = Object.keys(stats.days).sort();
+  for (const old of keys.slice(0, Math.max(0, keys.length - 190))) delete stats.days[old];
+}
 const blank = () => ({ seen: false, streak: 0, missed: false });
 const reverse = (side: Direction): Direction => side === "front" ? "back" : "front";
 const reviewKey = (id: string, direction: Direction) => id + ":" + direction;
@@ -211,7 +248,9 @@ export function question(state: Workspace) {
   const options = s.mode === "learn" && !s.writing && !tally.seen
     ? choices(deck, card, s.direction, s.id + ":" + s.round) : [];
   const kind = s.mode === "review" ? "rate" : options.length ? "choice" : answer.length > 110 ? "self" : "write";
-  return { deck, card, kind, prompt: card[s.direction], answer, options } as const;
+  // About one question in ten is a gold card that counts twice when answered correctly.
+  const gold = hash(s.id + ":" + s.round + ":" + s.cursor) % 10 === 0;
+  return { deck, card, kind, prompt: card[s.direction], answer, options, gold } as const;
 }
 
 export function dueCards(state: Workspace, cards: Card[], direction: Direction, now: number) {
@@ -325,6 +364,17 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     if (state.session?.deckId === old.id) state.session = null;
     return state;
   }
+  if (action.type === "setGoal") {
+    state.goal = action.goal;
+    return state;
+  }
+  if (action.type === "setDeckMeta") {
+    const deck = state.decks.find(item => item.id === action.deckId);
+    if (!deck) throw new Error("Dieses Set wurde nicht gefunden.");
+    if (action.examDate !== undefined) deck.examDate = action.examDate;
+    if (action.subject !== undefined) deck.subject = action.subject || null;
+    return state;
+  }
   if (action.type === "star") {
     const card = state.decks.find(item => item.id === action.deckId)?.cards.find(item => item.id === action.cardId);
     if (!card) throw new Error("Diese Karte wurde nicht gefunden.");
@@ -337,6 +387,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     const id = reviewKey(action.cardId, action.direction);
     const before = state.reviews[id] ?? null;
     state.reviews[id] = schedule(state.reviews[id], id, action.known ? 3 : 1, now);
+    track(state, now, { secured: before?.state !== 2 && state.reviews[id].state === 2 });
     const mistakeKey = reviewKey(deck.id, action.direction);
     const wasMistake = Boolean(state.mistakes[mistakeKey]?.includes(action.cardId));
     const mistakes = (state.mistakes[mistakeKey] ?? []).filter(cardId => cardId !== action.cardId);
@@ -359,6 +410,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     if (last.wasMistake) mistakes.push(last.cardId);
     state.mistakes[mistakeKey] = mistakes;
     state.lastSort = null;
+    track(state, now, { cards: -1, points: -1 });
     return state;
   }
   if (action.type === "start" || action.type === "continueLearn") {
@@ -383,7 +435,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     const queue = config.mode === "learn" ? initial.filter(id => tally[id].streak < 2) : initial;
     state.session = { id: crypto.randomUUID(), deckId: deck.id, mode: config.mode,
       direction: config.direction, filter: config.filter, writing: config.writing, initial, queue, tally,
-      cursor: 0, round: 1, done: !queue.length, correct: 0, mistakes: [] };
+      cursor: 0, round: 1, done: !queue.length, correct: 0, mistakes: [], combo: 0, best: 0 };
     return state;
   }
   const s = state.session;
@@ -392,13 +444,21 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
   if (action.type === "rate") {
     if (s.mode !== "review") throw new Error("Diese Bewertung gehört zur Wiederholung.");
     const id = reviewKey(q.card.id, s.direction);
+    const before = state.reviews[id]?.state;
     state.reviews[id] = schedule(state.reviews[id], id, action.grade, now);
+    const correct = action.grade >= 3;
+    s.combo = correct ? (s.combo ?? 0) + 1 : 0;
+    s.best = Math.max(s.best ?? 0, s.combo);
+    track(state, now, { points: correct && q.gold ? 2 : 1, correct, secured: before !== 2 && state.reviews[id].state === 2 });
   } else {
     if (s.mode === "review" || action.round !== s.round) throw new Error("Diese Frage wurde bereits bearbeitet.");
     if (q.kind === "choice" && !q.options.includes(action.answer)) throw new Error("Wähle eine angebotene Antwort.");
     const correct = action.self ?? matches(q.card, s.direction, action.answer);
     if (correct) s.correct += 1;
     else if (!s.mistakes.includes(q.card.id)) s.mistakes.push(q.card.id);
+    s.combo = correct ? (s.combo ?? 0) + 1 : 0;
+    s.best = Math.max(s.best ?? 0, s.combo);
+    let secured = false;
     if (s.mode === "learn") {
       const tally = s.tally[q.card.id];
       tally.seen = true;
@@ -410,7 +470,9 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       state.progress[id] = tally;
       // A card learned for the first time joins the spaced repetition schedule.
       if (before < 2 && tally.streak === 2 && !state.reviews[id]) state.reviews[id] = schedule(undefined, id, 3, now);
+      secured = before < 2 && tally.streak === 2;
     }
+    track(state, now, { points: correct && q.gold ? 2 : 1, correct, secured });
     const mistakeKey = reviewKey(s.deckId, s.direction);
     const recent = state.mistakes[mistakeKey] ?? [];
     state.mistakes[mistakeKey] = correct ? recent.filter(id => id !== q.card.id)

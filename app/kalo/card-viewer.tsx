@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { shuffle, type Deck, type Direction } from "../../lib/learning";
+import { dayOf, shuffle, type Deck, type Direction, type Workspace } from "../../lib/learning";
+import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
+import { GoalBanner, NextStepActions } from "./progress-ui";
+import { play } from "./sound";
 import type { Problem } from "./feedback";
 import Flashcard, { type FlashcardHandle } from "./flashcard";
 import { Icon, Key } from "./icons";
@@ -11,7 +14,7 @@ export type UndoResult = "ok" | "conflict" | "offline";
 type Swipe = { id: string; cardId: string; at: number; known: boolean };
 
 type Props = {
-  deck: Deck; start: CardsStart; direction: Direction;
+  deck: Deck; start: CardsStart; direction: Direction; workspace: Workspace; now: number; onStep: (step: Step) => void;
   onSort: (cardId: string, known: boolean, sortId: string) => Promise<boolean>;
   onUndo: (sortId: string) => Promise<UndoResult>;
   onProblem: (problem: Problem | null) => void;
@@ -19,7 +22,7 @@ type Props = {
   onBookmark: (activity: LastActivity) => void;
 };
 
-export default function CardViewer({ deck, start, direction, onSort, onUndo, onProblem, onBack, onHome, onChat, onBookmark }: Props) {
+export default function CardViewer({ deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, onBack, onHome, onChat, onBookmark }: Props) {
   const [order, setOrder] = useState(start.order);
   const [index, setIndex] = useState(start.index);
   const [flipped, setFlipped] = useState(start.flipped);
@@ -78,6 +81,7 @@ export default function CardViewer({ deck, start, direction, onSort, onUndo, onP
     if (position + 1 < visible.length) setIndex(position + 1);
     else setSorted(true);
     setAnnounce(rating ? "Ich kann das" : "Später üben");
+    play("swipe");
     void onSort(card.id, rating, swipe.id).then(saved => {
       if (saved) return;
       setLast(current => current?.id === swipe.id ? null : current);
@@ -154,9 +158,11 @@ export default function CardViewer({ deck, start, direction, onSort, onUndo, onP
       <h2>Set durchgesehen</h2>
       <p>{known === 1 ? "Eine Karte kannst du" : known + " Karten kannst du"}{later.length ? ", " + (later.length === 1 ? "eine übst du" : later.length + " übst du") + " gleich nochmals" : ""}.
         {" "}Deine Bewertungen fliessen in die Wiederholung ein.</p>
+      <GoalBanner workspace={workspace} now={now} />
       <div className="actions">
-        {later.length > 0 && <button className="button primary" autoFocus onClick={() => restart(later)}><Icon kind="repeat" /> {later.length === 1 ? "Eine Karte" : later.length + " Karten"} nochmals</button>}
-        <button className={"button" + (later.length ? "" : " primary")} autoFocus={!later.length} onClick={onHome}>Zur Bibliothek</button>
+        {later.length > 0 ? <button className="button primary" autoFocus onClick={() => restart(later)}><Icon kind="repeat" /> {later.length === 1 ? "Eine Karte" : later.length + " Karten"} nochmals</button>
+          : <NextStepActions step={nextStep(workspace, now, deck.id)} goalReached={dayStats(workspace, dayOf(now)).points >= goalOf(workspace)} onStep={onStep} onDone={onHome} />}
+        <button className="button" onClick={onHome}>Zur Bibliothek</button>
         <button className="button" onClick={() => restart(visible)}><Icon kind="shuffle" /> Neu mischen</button>
         {undoButton}
       </div>
@@ -164,11 +170,11 @@ export default function CardViewer({ deck, start, direction, onSort, onUndo, onP
       <Flashcard ref={flashcard} entry={entry} flipped={flipped}
         card={{ key: card.id, question: card[direction], answer: card[other] }}
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
-        onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
+        hint={position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
       <div className="swipe-status">
         {last ? <span className={last.known ? "rating-known" : "rating-again"} key={last.id}>
           <Icon kind={last.known ? "check" : "repeat"} /> {last.known ? "Ich kann das" : "Später üben"}</span>
-          : <span className="muted swipe-hint"><Icon kind="back" size="s" /> Später üben · Ich kann das <Icon kind="forward" size="s" /></span>}
+          : <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>}
         {undoButton}
       </div>
       <div className="swipe-actions">
@@ -177,7 +183,7 @@ export default function CardViewer({ deck, start, direction, onSort, onUndo, onP
       </div>
       <div className="card-controls">
         <button className="icon-button" disabled={position === 0} aria-label="Vorherige Karte" title="Vorherige Karte" onClick={() => step(-1)}><Icon kind="chevronLeft" /></button>
-        <button className="pill-button" onClick={() => onChat(card.id)}><Icon kind="chat" /> Erklären lassen</button>
+        <button className="icon-button" aria-label="Karte mit ChatGPT erklären lassen" title="Mit ChatGPT erklären" onClick={() => onChat(card.id)}><Icon kind="chat" /></button>
         <button className="icon-button" disabled={position === visible.length - 1} aria-label="Nächste Karte ohne Bewertung" title="Nächste Karte" onClick={() => step(1)}><Icon kind="chevronRight" /></button>
       </div>
     </>}
