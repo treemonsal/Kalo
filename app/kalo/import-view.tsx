@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { parseImport, type CardInput, type ImportSeparator } from "../../lib/learning";
-import { NavIcon } from "./icons";
+import { Icon } from "./icons";
 
 type Props = { room: number; onBack: () => void; onAccept: (cards: CardInput[]) => void; onError: (message: string) => void };
 
@@ -12,8 +12,9 @@ export default function ImportView({ room, onBack, onAccept, onError }: Props) {
   const [imported, setImported] = useState<ReturnType<typeof parseImport> | null>(null);
 
   return <>
-    <button className="icon action-icon" aria-label="Zurück" title="Zurück" onClick={onBack}><NavIcon kind="back" /></button>
-    <div className="page-heading"><div><span className="eyebrow">Kartensets</span><h1>Text importieren</h1></div></div>
+    <div className="view-bar"><button className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
+    <header className="page-head"><div><span className="eyebrow">Kartensets</span><h1>Text importieren</h1>
+      <p className="lead">Füge eine Liste ein oder öffne eine Datei aus Quizlet, Excel oder einer Tabelle.</p></div></header>
     <section className="panel flow">
       <label>Karten als Text<textarea rows={7} placeholder={"Frage\tAntwort"} value={paste} onChange={event => { setPaste(event.target.value); setImported(null); }} /></label>
       <label>Trennzeichen<select value={separator} onChange={event => { setSeparator(event.target.value as ImportSeparator); setImported(null); }}>

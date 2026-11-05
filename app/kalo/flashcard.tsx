@@ -1,106 +1,182 @@
 "use client";
 
-import { useEffect, useImperativeHandle, useRef, type PointerEvent, type Ref } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type PointerEvent, type Ref } from "react";
 import { dragOffset, swipeStep } from "../../lib/swipe";
+import { Icon } from "./icons";
+import { haptic, prefersReducedMotion, springs, stepSpring, textSize, toss, type Spring } from "./motion";
 
 type Sample = { x: number; time: number };
-type Drag = {
-  id: number; x: number; y: number; offset: number; width: number;
-  intent: "pending" | "horizontal" | "vertical"; samples: Sample[];
-};
-export type FlashcardHandle = { fling: (step: -1 | 1) => void };
+type Drag = { id: number; x: number; y: number; offset: number; width: number; intent: "pending" | "horizontal" | "vertical"; samples: Sample[] };
+type Mode = "idle" | "drag" | "settle" | "toss";
+export type FlashcardHandle = { fling: (known: boolean) => void };
+export type CardContent = { key: string; question: string; answer: string };
+
 type Props = {
   ref?: Ref<FlashcardHandle>;
-  cardKey: string; question: string; answer: string; flipped: boolean;
-  onFlip: () => void; onStep: (step: -1 | 1) => void;
+  card: CardContent;
+  /** The card that follows, shown underneath like the next card in a stack. */
+  next?: CardContent;
+  flipped: boolean;
+  /** When this card comes back (undo), it enters from the side it was thrown to. */
+  entry?: { key: string; from: -1 | 1 } | null;
+  onFlip: () => void;
+  onSwipe: (known: boolean) => void;
 };
 
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
 /**
- * A card that follows the finger 1:1, keeps the release velocity and is thrown off screen
- * in the direction of the swipe. Springs start from the current position, so every motion
- * can be grabbed again mid-flight.
+ * The card follows the finger 1:1, keeps the release velocity, is thrown off in the direction of the swipe
+ * and can be caught again mid-flight. The next card waits underneath and grows into place.
  */
-export default function Flashcard({ ref, cardKey, question, answer, flipped, onFlip, onStep }: Props) {
+export default function Flashcard({ ref, card, next, flipped, entry, onFlip, onSwipe }: Props) {
+  const stage = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLButtonElement>(null);
   const drag = useRef<Drag | null>(null);
-  const motion = useRef({ x: 0, frame: 0, leaving: false });
+  const motion = useRef({ x: 0, velocity: 0, frame: 0, mode: "idle" as Mode, swapping: false, fallback: 0, queued: [] as boolean[] });
   const suppressClick = useRef(false);
-  const reducedMotion = useRef(false);
 
   useEffect(() => {
-    const preference = matchMedia("(prefers-reduced-motion: reduce)");
-    const sync = () => { reducedMotion.current = preference.matches; };
-    sync();
-    preference.addEventListener("change", sync);
     const state = motion.current;
-    return () => {
-      preference.removeEventListener("change", sync);
-      cancelAnimationFrame(state.frame);
-    };
+    return () => { cancelAnimationFrame(state.frame); window.clearTimeout(state.fallback); };
   }, []);
 
-  function position(x: number) {
+  // Long text scrolls inside the card. A fade at the bottom shows that there is more.
+  useLayoutEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    const mark = () => element.querySelectorAll<HTMLElement>(".card-copy").forEach(copy => {
+      copy.dataset.overflow = String(copy.scrollHeight > copy.clientHeight + 2);
+    });
+    mark();
+    const observer = new ResizeObserver(mark);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [card.key, card.question, card.answer, next?.key]);
+
+  function width() {
+    return surface.current?.offsetWidth || 360;
+  }
+
+  function paint(x: number) {
     motion.current.x = x;
-    const button = surface.current;
-    button?.style.setProperty("--drag", x + "px");
-    button?.style.setProperty("--tilt", Math.max(-12, Math.min(12, x / 16)) + "deg");
-    button?.style.setProperty("--known", String(Math.max(0, Math.min(1, (x - 12) / 65))));
-    button?.style.setProperty("--again", String(Math.max(0, Math.min(1, (-x - 12) / 65))));
+    const element = stage.current;
+    if (!element) return;
+    element.style.setProperty("--drag", x + "px");
+    element.style.setProperty("--tilt", clamp(x / 20, -9, 9) + "deg");
+    element.style.setProperty("--known", String(clamp((x - 10) / 75, 0, 1)));
+    element.style.setProperty("--again", String(clamp((-x - 10) / 75, 0, 1)));
+    element.style.setProperty("--progress", String(clamp(Math.abs(x) / (width() * 0.55), 0, 1)));
   }
 
-  // Critically damped enough to settle without wobble, but it keeps the hand's momentum.
-  function settle(target: number, velocity: number) {
+  function setMode(mode: Mode) {
+    motion.current.mode = mode;
+    if (stage.current) stage.current.dataset.mode = mode;
+  }
+
+  function run(step: (dt: number) => boolean) {
     cancelAnimationFrame(motion.current.frame);
-    if (reducedMotion.current) { position(target); return; }
-    let speed = velocity * 1000;
     let last = performance.now();
     const tick = (now: number) => {
-      const dt = Math.min(0.025, (now - last) / 1000);
+      const dt = Math.min(1 / 30, (now - last) / 1000);
       last = now;
-      speed += ((target - motion.current.x) * 440 - speed * 38) * dt;
-      position(motion.current.x + speed * dt);
-      if (Math.abs(motion.current.x - target) < 0.5 && Math.abs(speed) < 9) position(target);
-      else motion.current.frame = requestAnimationFrame(tick);
+      if (!step(dt)) motion.current.frame = requestAnimationFrame(tick);
     };
     motion.current.frame = requestAnimationFrame(tick);
   }
 
-  // Continues the throw with the release velocity until the card has left the stage.
-  function fling(step: -1 | 1, velocity = 0) {
-    const sign = step < 0 ? 1 : -1;
-    cancelAnimationFrame(motion.current.frame);
-    navigator.vibrate?.(8);
-    const width = surface.current?.offsetWidth ?? 400;
-    if (reducedMotion.current) { onStep(step); return; }
-    motion.current.leaving = true;
-    let speed = sign * Math.max(Math.abs(velocity) * 1000, 1400);
-    let last = performance.now();
-    const tick = (now: number) => {
-      const dt = Math.min(0.025, (now - last) / 1000);
-      last = now;
-      speed += sign * 5200 * dt;
-      position(motion.current.x + speed * dt);
-      if (Math.abs(motion.current.x) < width * 1.25) {
-        motion.current.frame = requestAnimationFrame(tick);
-        return;
+  // Springs start from the current position and speed, so a new touch can always take over.
+  function settle(velocity: number, spring: Spring = springs.settle) {
+    const state = motion.current;
+    if (prefersReducedMotion()) { paint(0); setMode("idle"); return; }
+    setMode("settle");
+    state.velocity = velocity;
+    run(dt => {
+      const result = stepSpring(state.x, state.velocity, 0, spring, dt);
+      state.velocity = result.velocity;
+      paint(result.x);
+      if (Math.abs(state.x) > 0.4 || Math.abs(state.velocity) > 8) return false;
+      paint(0);
+      setMode("idle");
+      return true;
+    });
+  }
+
+  function commit(known: boolean) {
+    const state = motion.current;
+    setMode("idle");
+    state.swapping = true;
+    if (stage.current) stage.current.dataset.swapping = "true";
+    onSwipe(known);
+    // If no new card arrives (for example the last card was rated), the card glides back.
+    window.clearTimeout(state.fallback);
+    state.fallback = window.setTimeout(() => {
+      if (!state.swapping) return;
+      state.queued = [];
+      state.swapping = false;
+      delete stage.current?.dataset.swapping;
+      settle(0);
+    }, 450);
+  }
+
+  function throwCard(known: boolean, velocity: number) {
+    const state = motion.current;
+    const sign = known ? 1 : -1;
+    haptic();
+    if (prefersReducedMotion()) { commit(known); return; }
+    setMode("toss");
+    state.velocity = sign * Math.max(Math.abs(velocity), toss.minSpeed);
+    const limit = width() * 1.2 + 80;
+    run(dt => {
+      // Further taps are waiting: this card makes room faster.
+      state.velocity += sign * toss.acceleration * (state.queued.length ? 3 : 1) * dt;
+      paint(state.x + state.velocity * dt);
+      if (Math.abs(state.x) < limit) return false;
+      commit(known);
+      return true;
+    });
+  }
+
+  useImperativeHandle(ref, () => ({
+    fling: known => {
+      const state = motion.current;
+      if (state.mode === "drag") return;
+      // Fast repeated input is kept in order and thrown as soon as the next card is in place.
+      if (state.mode === "toss" || state.swapping) { if (state.queued.length < 8) state.queued.push(known); return; }
+      throwCard(known, 0);
+    },
+  }));
+
+  // Runs before paint: the old card never shows up again at rest, so there is no flicker.
+  useLayoutEffect(() => {
+    const state = motion.current;
+    cancelAnimationFrame(state.frame);
+    window.clearTimeout(state.fallback);
+    state.swapping = false;
+    delete stage.current?.dataset.swapping;
+    paint(0);
+    setMode("idle");
+    if (entry && entry.key === card.key) {
+      state.queued = [];
+      if (!prefersReducedMotion()) {
+        paint(entry.from * (width() * 1.1));
+        settle(0, springs.enter);
       }
-      motion.current.leaving = false;
-      position(0);
-      onStep(step);
-    };
-    motion.current.frame = requestAnimationFrame(tick);
-  }
-
-  useImperativeHandle(ref, () => ({ fling: step => { if (!motion.current.leaving) fling(step); } }));
+    } else if (state.queued.length) throwCard(state.queued.shift()!, 0);
+  // Only a new card resets the motion.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.key]);
 
   function pointerDown(event: PointerEvent<HTMLButtonElement>) {
-    if (motion.current.leaving || !event.isPrimary || event.button !== 0) return;
-    cancelAnimationFrame(motion.current.frame);
-    suppressClick.current = false;
+    const state = motion.current;
+    if (state.swapping || !event.isPrimary || event.button !== 0) return;
+    // Catching a card mid-flight takes it back into the hand.
+    cancelAnimationFrame(state.frame);
+    suppressClick.current = state.mode === "toss" || state.mode === "settle" && Math.abs(state.x) > 6;
+    setMode("drag");
     drag.current = {
-      id: event.pointerId, x: event.clientX, y: event.clientY, offset: motion.current.x,
-      width: event.currentTarget.offsetWidth, intent: "pending",
-      samples: [{ x: event.clientX, time: event.timeStamp }],
+      id: event.pointerId, x: event.clientX, y: event.clientY, offset: state.x, width: event.currentTarget.offsetWidth,
+      intent: Math.abs(state.x) > 6 ? "horizontal" : "pending", samples: [{ x: event.clientX, time: event.timeStamp }],
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -110,58 +186,55 @@ export default function Flashcard({ ref, cardKey, question, answer, flipped, onF
     if (!current || current.id !== event.pointerId) return;
     const dx = event.clientX - current.x;
     const dy = event.clientY - current.y;
-    if (current.intent === "pending" && Math.max(Math.abs(dx), Math.abs(dy)) >= 10) {
+    if (current.intent === "pending" && Math.max(Math.abs(dx), Math.abs(dy)) >= 8) {
       current.intent = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
     }
     if (current.intent !== "horizontal") return;
-    current.samples = [...current.samples.filter(sample => event.timeStamp - sample.time <= 90), {
-      x: event.clientX, time: event.timeStamp,
-    }].slice(-6);
-    if (!reducedMotion.current) position(dragOffset(current.offset + dx, current.width, true, true));
+    current.samples = [...current.samples.filter(sample => event.timeStamp - sample.time <= 90), { x: event.clientX, time: event.timeStamp }].slice(-6);
+    if (!prefersReducedMotion()) paint(dragOffset(current.offset + dx, current.width, true, true));
   }
 
   function release(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
     const current = drag.current;
     if (!current || current.id !== event.pointerId) return;
     drag.current = null;
-    suppressClick.current = cancelled || current.intent !== "pending";
+    if (current.intent !== "pending") suppressClick.current = true;
     const recent = current.samples.find(sample => event.timeStamp - sample.time <= 105);
     const velocity = recent ? (event.clientX - recent.x) / Math.max(12, event.timeStamp - recent.time) : 0;
-    const bounded = Math.max(-1.6, Math.min(1.6, velocity));
+    const bounded = clamp(velocity, -2.4, 2.4);
     const horizontal = !cancelled && current.intent === "horizontal";
-    const step = horizontal ? swipeStep(event.clientX - current.x, bounded, current.width, true, true) : 0;
-    if (step) fling(step as -1 | 1, bounded);
-    else settle(0, horizontal ? bounded : 0);
+    const travelled = motion.current.x;
+    const step = horizontal ? swipeStep(travelled, bounded, current.width, true, true) : 0;
+    if (step) throwCard(step < 0, bounded * 1000);
+    else if (current.intent === "pending" && Math.abs(travelled) < 1) setMode("idle");
+    else settle(horizontal ? bounded * 1000 : 0, springs.release);
   }
 
-  return <div className="card-stage">
+  return <div className="card-stage" ref={stage} data-mode="idle">
+    {next && <div className="card-under" aria-hidden="true">
+      <span className="card-face"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(next.question)}>{next.question}</span></span>
+    </div>}
     <button
       ref={surface}
       className="flashcard"
-      aria-label={(flipped ? "Antwort: " + answer : "Frage: " + question) + ". Tippen zum Umdrehen."}
+      aria-label={(flipped ? "Antwort: " + card.answer : "Frage: " + card.question) + ". Zum Umdrehen tippen."}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={event => release(event)}
       onPointerCancel={event => release(event, true)}
       onLostPointerCapture={event => release(event, true)}
       onClick={event => {
-        if (motion.current.leaving || (event.detail && suppressClick.current)) return;
-        settle(0, 0);
+        const state = motion.current;
+        if (state.swapping || state.mode === "toss" || (event.detail && suppressClick.current)) { suppressClick.current = false; return; }
         onFlip();
       }}
     >
-      <span className="swipe-stamp known" aria-hidden="true">Ich kann das</span>
-      <span className="swipe-stamp again" aria-hidden="true">Später üben</span>
-      <span className="card-enter" key={cardKey} aria-hidden="true">
-        <span className="card-faces" data-flipped={flipped}>
-          <span className="card-face front"><span className="eyebrow">Frage</span><span className="card-copy">{question}</span><Hint /></span>
-          <span className="card-face back"><span className="eyebrow">Antwort</span><span className="card-copy">{answer}</span><Hint /></span>
-        </span>
+      <span className="card-faces" key={card.key} data-flipped={flipped} aria-hidden="true">
+        <span className="card-face front"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(card.question)}>{card.question}</span><span className="card-hint">Zum Umdrehen tippen</span></span>
+        <span className="card-face back"><span className="eyebrow">Antwort</span><span className="card-copy" data-size={textSize(card.answer)}>{card.answer}</span><span className="card-hint">Zum Umdrehen tippen</span></span>
       </span>
+      <span className="swipe-stamp known" aria-hidden="true"><Icon kind="check" /> Ich kann das</span>
+      <span className="swipe-stamp again" aria-hidden="true"><Icon kind="repeat" /> Später üben</span>
     </button>
   </div>;
-}
-
-function Hint() {
-  return <span className="card-hint"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10a8 8 0 1 0-1 7M20 5v5h-5" /></svg></span>;
 }

@@ -182,3 +182,62 @@ test("Markieren behält den Lernstand, ein veralteter Editor wird abgelehnt", ()
   assert.equal(s.decks[0].cards[0].starred, true, "der Editor überschreibt keine Markierung");
   assert.throws(() => apply(s, edit, now), /anderen Gerät/);
 });
+
+test("Rückgängig nimmt genau die letzte Wischbewertung zurück", () => {
+  const { state, deck } = setup(3);
+  const [a, b] = deck.cards;
+  const swipe = (s: Workspace, cardId: string, known: boolean, sortId: string) =>
+    apply(s, { type: "sortCard", deckId: deck.id, cardId, direction: "front", known, sortId }, now);
+  const first = crypto.randomUUID();
+  const second = crypto.randomUUID();
+  let s = swipe(state, a.id, false, first);
+  const afterFirst = structuredClone(s);
+  s = swipe(s, b.id, false, second);
+  assert.throws(() => apply(s, { type: "undoSort", sortId: first }, now), /nicht mehr/);
+  s = apply(s, { type: "undoSort", sortId: second }, now);
+  assert.deepEqual(s.reviews, afterFirst.reviews, "die Bewertung von B ist weg, A bleibt");
+  assert.deepEqual(s.mistakes[deck.id + ":front"], [a.id]);
+  assert.equal(s.lastSort, null);
+  assert.throws(() => apply(s, { type: "undoSort", sortId: second }, now), "zweimal zurücknehmen geht nicht");
+});
+
+test("Rückgängig stellt einen früheren Stand und die Fehlerliste wieder her", () => {
+  const { state, deck } = setup(1);
+  const card = deck.cards[0];
+  let s = apply(state, { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: false }, now);
+  const before = structuredClone(s.reviews[card.id + ":front"]);
+  const sortId = crypto.randomUUID();
+  s = apply(s, { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: true, sortId }, now + 60_000);
+  assert.deepEqual(s.mistakes[deck.id + ":front"], []);
+  s = apply(s, { type: "undoSort", sortId }, now + 61_000);
+  assert.deepEqual(s.reviews[card.id + ":front"], before);
+  assert.deepEqual(s.mistakes[deck.id + ":front"], [card.id]);
+});
+
+test("Rückgängig ist gesperrt, wenn die Karte danach weiter gelernt wurde", () => {
+  const { state, deck } = setup(1);
+  const sortId = crypto.randomUUID();
+  let s = apply(state, { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: false, sortId }, now);
+  const later = Date.parse(s.reviews[deck.cards[0].id + ":front"].due);
+  s = apply(s, { type: "start", deckId: deck.id, mode: "review", direction: "front", filter: "all", dueOnly: true }, later);
+  s = apply(s, { type: "rate", sessionId: s.session!.id, cursor: 0, grade: 3 }, later);
+  assert.throws(() => apply(s, { type: "undoSort", sortId }, later), /weiter gelernt/);
+  const edited = apply(apply(state, { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true, sortId }, now),
+    { type: "save", deckId: deck.id, title: "Test", cards: [{ ...deck.cards[0], back: "Neu" }] }, now);
+  assert.throws(() => apply(edited, { type: "undoSort", sortId }, now), /weiter gelernt/);
+});
+
+test("Eine Lerneinheit umfasst höchstens acht offene Karten", () => {
+  const { state, deck } = setup(12);
+  let s = apply(state, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now);
+  assert.equal(s.session?.initial.length, 8);
+  const unit = new Set(s.session!.initial);
+  for (const id of unit) s.progress[id + ":front"] = { seen: true, streak: 2, missed: false };
+  s = apply(s, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now);
+  assert.equal(s.session?.initial.length, 4);
+  assert.ok(s.session!.initial.every(id => !unit.has(id)), "die nächste Einheit nimmt nur offene Karten");
+  for (const id of s.session!.initial) s.progress[id + ":front"] = { seen: true, streak: 2, missed: false };
+  s = apply(s, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now);
+  assert.equal(s.session?.done, true);
+  assert.equal(s.session?.initial.length, 0);
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { NavIcon } from "./icons";
+import { Icon } from "./icons";
 import { row, type EditCard, type Editor } from "./types";
 
 type Props = {
@@ -21,15 +21,16 @@ export default function EditorView({ editor, busy, onChange, onSave, onBack, onI
   const lines = (value: string) => value.split("\n").map(s => s.trim()).filter(Boolean);
 
   return <form onSubmit={onSave}>
-    <button type="button" className="icon action-icon" aria-label="Zurück" title="Zurück" onClick={onBack}><NavIcon kind="back" /></button>
-    <div className="page-heading"><div><span className="eyebrow">Karteneditor · wird auf diesem Gerät mitgesichert</span><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1></div></div>
+    <div className="view-bar"><button type="button" className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
+    <header className="page-head"><div><span className="eyebrow">Karteneditor</span><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
+      <p className="lead">Änderungen werden auf diesem Gerät mitgesichert, bis du speicherst.</p></div></header>
     <div className="panel editor-title"><label>Setname<input required maxLength={120} placeholder="Zum Beispiel Englisch Wortschatz" value={editor.title} onChange={event => onChange(current => ({ ...current, title: event.target.value }))} /></label></div>
     <div className="edit-list">
       {editor.cards.map((item, idx) => <div className="panel edit-card" key={item.row}>
         <div className="edit-head"><span className="eyebrow">Karte {idx + 1}</span><div>
-          <button type="button" className="icon" aria-label="Karte nach oben verschieben" disabled={idx === 0} onClick={() => move(idx, -1)}><NavIcon kind="up" /></button>
-          <button type="button" className="icon" aria-label="Karte nach unten verschieben" disabled={idx === editor.cards.length - 1} onClick={() => move(idx, 1)}><NavIcon kind="down" /></button>
-          <button type="button" className="icon" aria-label="Karte entfernen" onClick={() => onChange(current => ({ ...current, cards: current.cards.filter(c => c.row !== item.row) }))}><NavIcon kind="close" /></button>
+          <button type="button" className="icon-button small" aria-label={"Karte " + (idx + 1) + " nach oben"} title="Nach oben" disabled={idx === 0} onClick={() => move(idx, -1)}><Icon kind="up" /></button>
+          <button type="button" className="icon-button small" aria-label={"Karte " + (idx + 1) + " nach unten"} title="Nach unten" disabled={idx === editor.cards.length - 1} onClick={() => move(idx, 1)}><Icon kind="down" /></button>
+          <button type="button" className="icon-button small" aria-label={"Karte " + (idx + 1) + " entfernen"} title="Karte entfernen" onClick={() => onChange(current => ({ ...current, cards: current.cards.filter(c => c.row !== item.row) }))}><Icon kind="trash" /></button>
         </div></div>
         <div className="two"><label>Vorderseite<textarea rows={2} maxLength={1500} value={item.front} onChange={event => update(item.row, { front: event.target.value })} /></label>
           <label>Rückseite<textarea rows={2} maxLength={1500} value={item.back} onChange={event => update(item.row, { back: event.target.value })} /></label></div>
@@ -40,10 +41,10 @@ export default function EditorView({ editor, busy, onChange, onSave, onBack, onI
       </div>)}
     </div>
     <div className="actions editor-actions">
-      <button className="button primary" disabled={busy}>Set speichern</button>
-      <button type="button" className="button" disabled={editor.cards.length >= 400} onClick={() => onChange(current => ({ ...current, cards: [...current.cards, row()] }))}>Karte hinzufügen</button>
-      <button type="button" className="button" onClick={onImport}>Text importieren</button>
-      {editor.deckId && <button type="button" className="button danger" disabled={busy} onClick={onDelete}>Set entfernen</button>}
+      <button className="button primary" disabled={busy}><Icon kind="check" /> Speichern</button>
+      <button type="button" className="button" disabled={editor.cards.length >= 400} onClick={() => onChange(current => ({ ...current, cards: [...current.cards, row()] }))}><Icon kind="plus" /> Karte</button>
+      <button type="button" className="button" aria-label="Text importieren" title="Text importieren" onClick={onImport}><Icon kind="import" /><span className="wide-only">Importieren</span></button>
+      {editor.deckId && <button type="button" className="icon-button danger" aria-label="Set löschen" title="Set löschen" disabled={busy} onClick={onDelete}><Icon kind="trash" /></button>}
     </div>
   </form>;
 }
