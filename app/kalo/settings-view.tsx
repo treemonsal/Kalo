@@ -34,7 +34,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
   }
 
   return <>
-    <div className="page-heading"><div><span className="eyebrow">Kalo</span><h1>Einstellungen</h1></div></div>
+    <header className="page-head"><div><span className="eyebrow">Kalo</span><h1>Einstellungen</h1></div></header>
     <section className="panel flow"><h2>Darstellung</h2>
       <fieldset className="appearance"><legend>Farbschema</legend>
         {([["system", "System"], ["light", "Hell"], ["dark", "Dunkel"]] as const).map(([value, label]) =>
@@ -69,7 +69,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
         <h3>Sicherung prüfen</h3>
         <p>{restore.decks.length} Sets und {restore.decks.reduce((total, item) => total + item.cards.length, 0)} Karten. Beim Wiederherstellen werden deine aktuellen Sets und dein Lernstand ersetzt.</p>
         <div className="actions">
-          <button className="button danger" disabled={busy} onClick={async () => {
+          <button className="button destructive" disabled={busy} onClick={async () => {
             if (await mutate({ type: "restore", data: restore })) { setRestore(null); onNotice("Sicherung wiederhergestellt."); }
           }}>Aktuellen Stand ersetzen</button>
           <button className="button" onClick={() => setRestore(null)}>Abbrechen</button>

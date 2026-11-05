@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
 import { deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
-import CardViewer from "./card-viewer";
+import CardViewer, { type UndoResult } from "./card-viewer";
 import ChatView from "./chat-view";
 import DeckView from "./deck-view";
 import EditorView from "./editor-view";
-import HomeView, { type DueSet } from "./home-view";
-import { NavIcon } from "./icons";
+import { EmptyState, ErrorBanner, LibrarySkeleton, Toast, useConfirm, type Problem } from "./feedback";
+import HomeView, { type DueSet, type Recent } from "./home-view";
+import { Icon } from "./icons";
 import ImportView from "./import-view";
 import { useReminders } from "./reminders";
 import SettingsView from "./settings-view";
@@ -20,6 +21,7 @@ import { freshEditor, row, type CardsStart, type Data, type Draft, type Editor, 
 const DEFAULT_CHAT = "https://chatgpt.com/";
 const MAX_CARDS = 400;
 const POLL_MS = 25_000;
+const modeName = { learn: "Lernen", cram: "Pauken", review: "Wiederholen" };
 
 function safeChatUrl(link: string) {
   try {
@@ -40,6 +42,14 @@ function isEditor(value: unknown): value is Editor {
     && item.cards.every(card => typeof card?.front === "string" && typeof card.back === "string" && typeof card.row === "string");
 }
 
+/** Turns a failed request into a message with a sensible next step. */
+function problemFor(status: number, message: string | undefined, retry: () => void): Problem {
+  if (status === 0) return { message: "Keine Verbindung. Deine letzte Änderung ist noch nicht gespeichert.", action: { label: "Erneut versuchen", run: retry } };
+  if (status === 401) return { message: "Deine Anmeldung ist abgelaufen.", link: { label: "Neu anmelden", href: "/signin-with-chatgpt?return_to=%2F" } };
+  if (status >= 500) return { message: message || "Kalo kann gerade nicht speichern.", action: { label: "Erneut versuchen", run: retry } };
+  return { message: message || "Diese Änderung war nicht möglich." };
+}
+
 export default function Kalo({ accountId, initialAppearance }: { accountId: string; initialAppearance: Appearance }) {
   const bookmarkKey = "kalo-last:" + accountId;
   const editorKey = "kalo-editor:" + accountId;
@@ -54,15 +64,18 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [cardsStart, setCardsStart] = useState<CardsStart | null>(null);
   const [chatCard, setChatCard] = useState<string>();
   const [theme, setTheme] = useState(initialAppearance);
-  const [error, setError] = useState("");
+  const [problem, setProblem] = useState<Problem | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [time, setTime] = useState(0);
+  const [confirm, confirmDialog] = useConfirm();
   const dataRef = useRef<Data | null>(null);
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const lastRefresh = useRef(0);
+  const failedSorts = useRef(new Set<string>());
   const main = useRef<HTMLElement>(null);
+  const reload = useRef(() => undefined as void);
 
   const storedBookmark = useStored(bookmarkKey);
   const storedEditor = useStored(editorKey);
@@ -86,14 +99,21 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     try {
       const known = dataRef.current?.revision;
       const result = await fetch("/api/workspace" + (known === undefined ? "" : "?known=" + known), { cache: "no-store" });
-      if (!result.ok) throw new Error(result.status === 401 ? "Melde dich neu an, um deinen Lernstand zu laden." : "Dein Lernstand konnte gerade nicht geladen werden.");
+      if (result.status === 401) { setProblem(problemFor(401, undefined, () => undefined)); return; }
+      if (!result.ok) throw new Error();
       const next = await result.json() as Data | { unchanged: true };
       if (!("unchanged" in next)) accept(next);
       setTime(Date.now());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Verbindung fehlgeschlagen.");
+      setProblem(current => current?.action?.label === "Erneut laden" ? null : current);
+    } catch {
+      setProblem({
+        message: dataRef.current ? "Dein Lernstand konnte nicht aktualisiert werden. Prüfe die Verbindung." : "Dein Lernstand konnte nicht geladen werden. Prüfe die Verbindung.",
+        action: { label: "Erneut laden", run: () => reload.current() },
+      });
     }
   }, [accept]);
+
+  useEffect(() => { reload.current = () => void refresh(true); }, [refresh]);
 
   useEffect(() => {
     // Deferred so the first load never updates state inside the effect itself.
@@ -119,25 +139,34 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // Queued actions (card swipes) run one after another, all others are dropped while one is running.
-  const mutate: Mutate = async (action, options) => {
-    if (!dataRef.current || (pending.current && !options?.queue)) return null;
+  // Queued actions (swipes, undo, stars) run strictly in order. Others are dropped while something runs.
+  const mutate: Mutate = async (action, options = {}) => {
+    if (!dataRef.current || (pending.current && !options.queue)) return null;
     pending.current += 1;
     setBusy(true);
-    setError("");
+    if (!options.silent) setProblem(null);
     const run = async (): Promise<MutateResult | null> => {
+      let status = 0;
       try {
+        if (options.skip?.()) { options.onDone?.(true, 200); return dataRef.current as MutateResult; }
         const response = await fetch("/api/workspace", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ revision: dataRef.current?.revision, action }),
         });
+        status = response.status;
         const result = await response.json() as MutateResult;
         if (result.workspace) accept(result);
-        if (!response.ok) throw new Error(result.error || "Die Änderung konnte gerade nicht gespeichert werden.");
+        if (!response.ok) {
+          options.onDone?.(false, status);
+          if (!options.silent) setProblem(problemFor(status, result.error, () => void mutate(action, options)));
+          return null;
+        }
         setTime(Date.now());
+        options.onDone?.(true, status);
         return result;
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Verbindung fehlgeschlagen.");
+      } catch {
+        options.onDone?.(false, status);
+        if (!options.silent) setProblem(problemFor(status, undefined, () => void mutate(action, options)));
         return null;
       } finally {
         pending.current -= 1;
@@ -154,18 +183,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const session = workspace?.session;
 
   useEffect(() => {
-    if (error && ["editor", "import", "settings"].includes(view)) {
-      main.current?.querySelector("[role=alert]")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }
-  }, [error, view]);
-
-  useEffect(() => {
     window.scrollTo(0, 0);
     if (view !== "home" && !main.current?.contains(document.activeElement)) main.current?.focus({ preventScroll: true });
   }, [view]);
 
   function navigate(next: View) {
-    setError("");
+    setProblem(null);
     setView(next);
   }
 
@@ -176,15 +199,18 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     writeStored(editorKey, JSON.stringify(next));
   }
 
-  function openEditor(next: Editor, persist = false) {
-    if (unsavedEditor && !persist && !window.confirm("Ungespeicherte Änderungen an «" + (unsavedEditor.title || "Neues Set") + "» verwerfen?")) return;
+  async function openEditor(next: Editor, persist = false) {
+    if (unsavedEditor && !persist && !await confirm({
+      title: "Ungespeicherte Änderungen verwerfen?",
+      message: "«" + (unsavedEditor.title || "Neues Set") + "» ist noch nicht gespeichert.", confirm: "Verwerfen", destructive: true,
+    })) return;
     writeStored(editorKey, persist ? JSON.stringify(next) : null);
     setEditor(next);
     navigate("editor");
   }
 
   function edit(item?: Deck, draft?: Draft) {
-    openEditor(item ? { deckId: item.id, title: item.title, cards: item.cards.map(row), base: deckDigest(item) }
+    void openEditor(item ? { deckId: item.id, title: item.title, cards: item.cards.map(row), base: deckDigest(item) }
       : draft ? { draftId: draft.id, title: draft.title, cards: draft.cards.map(row) } : freshEditor());
   }
 
@@ -197,7 +223,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (importTarget === "append" && editor) {
       changeEditor(current => ({ ...current, cards: [...current.cards.filter(c => c.front.trim() || c.back.trim()), ...cards.map(row)] }));
       navigate("editor");
-    } else openEditor({ title: "", cards: cards.map(row) }, true);
+    } else void openEditor({ title: "", cards: cards.map(row) }, true);
   }
 
   async function save(event: FormEvent) {
@@ -205,7 +231,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (!editor) return;
     const complete = editor.cards.filter(item => item.front.trim() || item.back.trim());
     if (!complete.length || complete.some(item => !item.front.trim() || !item.back.trim())) {
-      setError("Fülle bei jeder Karte beide Seiten aus.");
+      setProblem({ message: "Fülle bei jeder Karte beide Seiten aus. Leere Karten werden beim Speichern weggelassen." });
       return;
     }
     const result = await mutate({
@@ -218,16 +244,18 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     setDeckId(editor.deckId ?? result.workspace.decks[0].id);
     setEditor(null);
     navigate("deck");
-    setNotice("Set gespeichert.");
+    setNotice("Set gespeichert");
   }
 
   async function removeDeck() {
-    if (!editor?.deckId || !window.confirm("Dieses Set und seinen Lernstand endgültig entfernen?")) return;
+    if (!editor?.deckId || !await confirm({
+      title: "Set löschen?", message: "«" + editor.title + "» und sein Lernstand werden endgültig entfernt.", confirm: "Löschen", destructive: true,
+    })) return;
     if (await mutate({ type: "delete", deckId: editor.deckId })) {
       writeStored(editorKey, null);
       setEditor(null);
       navigate("home");
-      setNotice("Set entfernt.");
+      setNotice("Set gelöscht");
     }
   }
 
@@ -251,12 +279,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     const side = options?.side ?? direction;
     const selectedFilter = options ? "all" : override ?? filter;
     if (session && !session.done) {
-      if (!options && session.deckId === target.id && session.mode === mode && session.direction === side
+      if (!options && !override && session.deckId === target.id && session.mode === mode && session.direction === side
           && session.filter === selectedFilter && session.writing === writing) {
         resume();
         return;
       }
-      if (!window.confirm("Eine Lernrunde ist offen. Neue Runde starten?")) return;
+      if (!await confirm({ title: "Neue Runde starten?", message: "Deine offene Runde «" + modeName[session.mode] + "» wird beendet.", confirm: "Neue Runde" })) return;
     }
     const result = await mutate({
       type: "start", mode, deckId: target.id, direction: side,
@@ -284,8 +312,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setNotice("Text kopiert.");
-    } catch { setError("Markiere und kopiere den Text im Feld."); }
+      setNotice("Kopiert");
+    } catch { setProblem({ message: "Kopieren ging nicht. Markiere den Text im Feld und kopiere ihn von Hand." }); }
   }
 
   function returnToDeck() {
@@ -293,7 +321,22 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate(deck || (view === "study" && session) ? "deck" : "home");
   }
 
-  const learned = Object.values(workspace?.progress ?? {}).filter(item => item.streak === 2).length;
+  function sortCard(target: Deck, cardId: string, known: boolean, sortId: string) {
+    return mutate({ type: "sortCard", deckId: target.id, cardId, direction, known, sortId }, {
+      queue: true, silent: true, onDone: ok => { if (!ok) failedSorts.current.add(sortId); },
+    }).then(Boolean);
+  }
+
+  function undoSort(sortId: string) {
+    let status = 200;
+    return mutate({ type: "undoSort", sortId }, {
+      queue: true, silent: true,
+      // A rating that never reached the server has nothing to take back.
+      skip: () => failedSorts.current.has(sortId),
+      onDone: (_ok, code) => { status = code; },
+    }).then((result): UndoResult => result ? "ok" : status === 0 || status >= 500 ? "offline" : "conflict");
+  }
+
   const dueSets: DueSet[] = workspace?.decks.flatMap(item =>
     (["front", "back"] as const).flatMap(side => {
       const ready = dueCards(workspace, item.cards, side, time);
@@ -310,41 +353,50 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const recentDeck = lastActivity?.mode === "cards" ? workspace?.decks.find(item => item.id === lastActivity.deckId) : undefined;
   const recentCard = lastActivity?.mode === "cards" ? recentDeck?.cards.find(item => item.id === lastActivity.cardId) : undefined;
   const continueStudy = session && !session.done && (!recentCard || lastActivity?.mode === "study");
-  const studyPrompt = continueStudy && workspace ? workspace.decks.find(d => d.id === session.deckId) : undefined;
-  const recent = continueStudy && studyPrompt ? {
-    title: studyPrompt.title,
-    prompt: studyPrompt.cards.find(card => card.id === session.queue[session.cursor])?.[session.direction],
-    onOpen: resume,
-  } : recentDeck && recentCard && lastActivity?.mode === "cards" ? {
-    title: recentDeck.title,
-    prompt: recentCard[lastActivity.direction],
-    onOpen: () => {
-      const order = lastActivity.order.filter(id => recentDeck.cards.some(item => item.id === id));
-      if (!order.includes(recentCard.id)) order.push(recentCard.id);
-      setDeckId(recentDeck.id);
-      setDirection(lastActivity.direction);
-      openCards(order, order.indexOf(recentCard.id), lastActivity.flipped);
-    },
-  } : undefined;
+  const studyDeck = continueStudy ? workspace?.decks.find(d => d.id === session.deckId) : undefined;
+  let recent: Recent | undefined;
+  if (continueStudy && studyDeck) {
+    const learned = session.initial.filter(id => (session.tally[id]?.streak ?? 0) >= 2).length;
+    // Each card needs two correct recalls, so the bar also moves for the first one.
+    const steps = session.initial.reduce((total, id) => total + Math.min(2, session.tally[id]?.streak ?? 0), 0);
+    recent = session.mode === "learn"
+      ? { title: studyDeck.title, mode: modeName.learn, progress: steps / Math.max(1, session.initial.length * 2), detail: learned + " von " + session.initial.length + " sitzen · Runde " + session.round, onOpen: resume }
+      : { title: studyDeck.title, mode: modeName[session.mode], progress: session.cursor / Math.max(1, session.queue.length), detail: session.cursor + " von " + session.queue.length + " beantwortet", onOpen: resume };
+  } else if (recentDeck && recentCard && lastActivity?.mode === "cards") {
+    const order = lastActivity.order.filter(id => recentDeck.cards.some(item => item.id === id));
+    if (!order.includes(recentCard.id)) order.push(recentCard.id);
+    const at = order.indexOf(recentCard.id);
+    recent = {
+      title: recentDeck.title, mode: "Karten", progress: (at + 1) / order.length, detail: "Karte " + (at + 1) + " von " + order.length,
+      onOpen: () => { setDeckId(recentDeck.id); setDirection(lastActivity.direction); openCards(order, at, lastActivity.flipped); },
+    };
+  }
 
   const libraryView = view !== "chat" && view !== "settings";
   const draftCount = data?.drafts.length ?? 0;
 
   return (
-    <div className="shell">
+    <div className="shell" data-view={view}>
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
-      <aside className="rail">
-        {/* A tiny static SVG mark, image optimisation would add nothing. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <button className="brand" onClick={() => navigate("home")}><img src="/kalo-mark.svg" alt="" width={34} height={34} /> Kalo</button>
-        <button className="gear icon" aria-label="Einstellungen" aria-current={view === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><NavIcon kind="settings" /></button>
-      </aside>
+      <header className="topbar">
+        <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">
+          {/* A tiny static SVG mark, image optimisation would add nothing. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/kalo-mark.svg" alt="" width={30} height={30} /> Kalo
+        </button>
+        <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" aria-current={view === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Icon kind="settings" /></button>
+      </header>
       <main ref={main} className="main" id="inhalt" tabIndex={-1} aria-busy={busy}>
-        {error && <div className="message error" role="alert">{error}</div>}
-        <div className="toast-slot" role="status" aria-live="polite">{notice && <div className="toast" key={notice}>{notice}</div>}</div>
-        {!data && <div className="panel loading"><h1>Kalo</h1><p>Dein Lernstand wird geladen.</p><button className="button" onClick={() => void refresh(true)}>Erneut laden</button></div>}
+        {data && problem && <ErrorBanner problem={problem} onDismiss={() => setProblem(null)} />}
+        <Toast message={notice} />
+        {!data && (problem
+          ? <EmptyState icon="cloudOff" title="Keine Verbindung" text={problem.message}>
+              {problem.action && <button className="button primary" onClick={problem.action.run}><Icon kind="repeat" /> {problem.action.label}</button>}
+              {problem.link && <a className="button primary" href={problem.link.href} target="_top">{problem.link.label}</a>}
+            </EmptyState>
+          : <LibrarySkeleton />)}
 
-        {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} learned={learned} nextReview={nextReview}
+        {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
           recent={recent}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
@@ -361,22 +413,23 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
-          onBack={() => navigate(importTarget === "append" && editor ? "editor" : "home")} onAccept={acceptImport} onError={setError} />}
+          onBack={() => navigate(importTarget === "append" && editor ? "editor" : "home")} onAccept={acceptImport}
+          onError={message => setProblem(message ? { message } : null)} />}
 
-        {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} deck={deck} start={cardsStart} direction={direction} error={error}
-          onSort={async (cardId, known) => Boolean(await mutate({ type: "sortCard", deckId: deck.id, cardId, direction, known }, { queue: true }))}
+        {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} deck={deck} start={cardsStart} direction={direction}
+          onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
           onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => openChat(deck, cardId)}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))} />}
 
         {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={busy} mutate={mutate}
-          onBack={returnToDeck} onCramMistakes={() => void start("cram", undefined, "mistakes")} />}
+          onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)} />}
 
-        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} drafts={data.drafts} busy={busy}
+        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} drafts={data.drafts} busy={busy} confirm={confirm}
           chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={returnToDeck} onRefresh={() => void refresh(true)}
           onImport={() => importText("new")} onReview={draft => edit(undefined, draft)} />}
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={busy} theme={theme} chatLink={chatLink} reminders={reminders}
-          mutate={mutate} onError={setError} onNotice={setNotice}
+          mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onChatLink={value => {
             const url = safeChatUrl(value);
@@ -385,17 +438,20 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
             return true;
           }} />}
 
-        {data && ["deck", "cards"].includes(view) && !deck && <section className="panel flow"><h1>Set nicht verfügbar</h1><button className="button" onClick={() => navigate("home")}>Zur Bibliothek</button></section>}
-        {data && view === "study" && !session && <section className="panel flow"><h1>Keine offene Runde</h1><button className="button" onClick={returnToDeck}>Zurück</button></section>}
+        {data && ["deck", "cards"].includes(view) && !deck && <EmptyState icon="cards" title="Set nicht verfügbar" text="Dieses Set wurde gelöscht oder auf einem anderen Gerät verändert.">
+          <button className="button primary" onClick={() => navigate("home")}>Zur Bibliothek</button></EmptyState>}
+        {data && view === "study" && !session && <EmptyState icon="target" title="Keine offene Runde" text="Diese Runde wurde beendet, vielleicht auf einem anderen Gerät.">
+          <button className="button primary" onClick={returnToDeck}>Zurück</button></EmptyState>}
       </main>
       {/* Outside the top bar: its backdrop filter would otherwise anchor this fixed dock to the bar. */}
       <div className="bottom-dock">
         <nav aria-label="Hauptmenü">
-          <button aria-current={libraryView ? "page" : undefined} onClick={() => navigate("home")}><NavIcon kind="library" /> Bibliothek</button>
-          <button aria-current={view === "chat" ? "page" : undefined} onClick={() => openChat()}><NavIcon kind="chat" /> ChatGPT {draftCount > 0 && <span className="badge">{draftCount}</span>}</button>
+          <button aria-current={libraryView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="library" /><span>Bibliothek</span></button>
+          <button aria-current={view === "chat" ? "page" : undefined} onClick={() => openChat()}><Icon kind="chat" /><span>ChatGPT</span>{draftCount > 0 && <span className="badge" aria-label={draftCount + " Entwürfe"}>{draftCount}</span>}</button>
         </nav>
-        <button className="nav-create" aria-label="Neues Set erstellen" onClick={() => { setDeckId(""); edit(); }}><NavIcon kind="plus" /></button>
+        <button className="nav-create" aria-label="Neues Set erstellen" title="Neues Set" onClick={() => { setDeckId(""); edit(); }}><Icon kind="plus" /></button>
       </div>
+      {confirmDialog}
     </div>
   );
 }

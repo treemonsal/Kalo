@@ -1,7 +1,7 @@
 "use client";
 
-import { reviewQueue, type Deck, type Direction, type Filter, type Workspace } from "../../lib/learning";
-import { NavIcon } from "./icons";
+import { dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace } from "../../lib/learning";
+import { Icon, type IconKind } from "./icons";
 import { plural } from "./types";
 
 type Props = {
@@ -17,31 +17,63 @@ export default function DeckView(props: Props) {
   const visible = deck.cards.filter(item => filter === "all" || (filter === "starred"
     ? item.starred : workspace.mistakes[deck.id + ":" + direction]?.includes(item.id)));
   const ready = reviewQueue(workspace, visible, direction, time).length;
+  const due = dueCards(workspace, visible, direction, time).length;
+  const done = deck.cards.filter(card => secure(workspace, card.id, direction)).length;
+  const open = visible.filter(card => (workspace.progress[card.id + ":" + direction]?.streak ?? 0) < 2).length;
+  const starred = deck.cards.filter(card => card.starred).length;
+  const modes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
+    { mode: "cards", icon: "cards", title: "Karten", text: "Umdrehen und wischen" },
+    { mode: "learn", icon: "target", title: "Lernen", text: open ? plural(Math.min(open, 8), "Karte", "Karten") + " in der nächsten Einheit" : "Alles sitzt" },
+    { mode: "cram", icon: "bolt", title: "Pauken", text: "Alle Karten direkt abfragen" },
+    { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " neu bereit" : "Nichts fällig" },
+  ];
 
   return <>
-    <button className="icon action-icon" aria-label="Zur Bibliothek" title="Zur Bibliothek" onClick={props.onHome}><NavIcon kind="back" /></button>
-    <div className="page-heading"><div><span className="eyebrow">Kartenset · {plural(deck.cards.length, "Karte", "Karten")}</span><h1>{deck.title}</h1></div>
-      <button className="icon action-icon" aria-label="Set bearbeiten" title="Set bearbeiten" onClick={props.onEdit}><NavIcon kind="edit" /></button></div>
-    <details className="panel study-options">
-      <summary>Lernoptionen <span>{filter === "starred" ? "Markierte Karten" : filter === "mistakes" ? "Letzte Fehler" : "Alle Karten"}{direction === "back" ? " · Rückseite zuerst" : ""}{writing ? " · Nur schreiben" : ""}</span></summary>
+    <div className="view-bar">
+      <button className="icon-button" aria-label="Zur Bibliothek" title="Zur Bibliothek" onClick={props.onHome}><Icon kind="back" /></button>
+      <button className="button small" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
+    </div>
+    <header className="page-head">
+      <div>
+        <span className="eyebrow">Kartenset</span>
+        <h1>{deck.title}</h1>
+        <div className="deck-summary">
+          <span className="meter"><i style={{ width: (done / Math.max(1, deck.cards.length)) * 100 + "%" }} /></span>
+          <span>{done} von {plural(deck.cards.length, "Karte", "Karten")} sitzen{due ? " · " + due + " fällig" : ""}</span>
+        </div>
+      </div>
+    </header>
+
+    {props.onResume && <button className="continue-card compact" onClick={props.onResume}>
+      <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Dort weitermachen, wo du aufgehört hast</strong></span>
+      <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
+    </button>}
+
+    <div className="study-modes">
+      {modes.map(item => <button key={item.mode} className="mode" data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
+        onClick={() => item.mode === "cards" ? props.onCards(visible.map(c => c.id)) : props.onStart(item.mode)}>
+        <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small>{item.text}</small>
+      </button>)}
+    </div>
+
+    <details className="panel options-panel">
+      <summary><span>Lernoptionen</span><span className="summary-value">{filter === "starred" ? "Markierte Karten" : filter === "mistakes" ? "Letzte Fehler" : "Alle Karten"}{direction === "back" ? " · Rückseite zuerst" : ""}{writing ? " · Nur schreiben" : ""}</span></summary>
       <div className="options">
         <label>Fragerichtung<select value={direction} onChange={event => props.onDirection(event.target.value as Direction)}><option value="front">Vorderseite zuerst</option><option value="back">Rückseite zuerst</option></select></label>
-        <label>Auswahl<select value={filter} onChange={event => props.onFilter(event.target.value as Filter)}><option value="all">Alle Karten</option><option value="starred">Markierte Karten</option><option value="mistakes">Letzte Fehler</option></select></label>
-        <label className="check"><input type="checkbox" checked={writing} onChange={event => props.onWriting(event.target.checked)} /> Nur schreiben</label>
+        <label>Auswahl<select value={filter} onChange={event => props.onFilter(event.target.value as Filter)}><option value="all">Alle Karten</option><option value="starred">Markierte Karten ({starred})</option><option value="mistakes">Letzte Fehler</option></select></label>
+        <label className="check"><input type="checkbox" checked={writing} onChange={event => props.onWriting(event.target.checked)} /> Beim Lernen nur schreiben</label>
       </div>
     </details>
-    <div className="study-modes">
-      <button className="mode" disabled={!visible.length} onClick={() => props.onCards(visible.map(c => c.id))}><span aria-hidden="true">01</span><strong>Karten</strong><small>Umdrehen und wischen</small></button>
-      <button className="mode" disabled={busy || !visible.length} onClick={() => props.onStart("learn")}><span aria-hidden="true">02</span><strong>Lernen</strong><small>Schritt für Schritt frei abrufen</small></button>
-      <button className="mode" disabled={busy || !visible.length} onClick={() => props.onStart("cram")}><span aria-hidden="true">03</span><strong>Pauken</strong><small>Direkt üben und Fehler wiederholen</small></button>
-      <button className="mode" disabled={busy || !visible.length} onClick={() => props.onStart("review")}><span aria-hidden="true">04</span><strong>Wiederholen</strong><small>{ready} zum Üben bereit</small></button>
-    </div>
-    {!visible.length && <p className="muted">In dieser Auswahl sind keine Karten. Wähle oben eine andere Auswahl.</p>}
-    <div className="actions"><button className="button" onClick={props.onChat}>Mit ChatGPT lernen</button>{props.onResume && <button className="button" onClick={props.onResume}>Offene Runde fortsetzen</button>}</div>
-    <section className="set-list panel" aria-label="Karten im Set">{deck.cards.map(item => <div key={item.id}>
-      <span>{item.front}</span><span className="muted">{item.back}</span>
-      <button className="icon star" aria-label={item.starred ? "Markierung entfernen" : "Karte markieren"} aria-pressed={item.starred}
-        onClick={() => props.onStar(item.id, !item.starred)}><NavIcon kind="star" filled={item.starred} /></button>
-    </div>)}</section>
+    {!visible.length && <p className="quiet-line"><Icon kind="alert" /> In dieser Auswahl sind keine Karten. Wähle unter Lernoptionen eine andere Auswahl.</p>}
+
+    <section className="set-list" aria-labelledby="cards-title">
+      <div className="section-head"><h2 id="cards-title">Karten <span className="count">{deck.cards.length}</span></h2>
+        <button className="button small" onClick={props.onChat}><Icon kind="chat" /> Mit ChatGPT lernen</button></div>
+      <ul className="panel card-rows">{deck.cards.map(item => <li key={item.id}>
+        <span className="row-front">{item.front}</span><span className="row-back">{item.back}</span>
+        <button className="icon-button star" aria-label={(item.starred ? "Markierung entfernen: " : "Markieren: ") + item.front} aria-pressed={item.starred}
+          title={item.starred ? "Markierung entfernen" : "Markieren"} onClick={() => props.onStar(item.id, !item.starred)}><Icon kind="star" filled={item.starred} /></button>
+      </li>)}</ul>
+    </section>
   </>;
 }

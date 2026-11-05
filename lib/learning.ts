@@ -18,6 +18,8 @@ const deckShape = deckInput.extend({ id: key, cards: z.array(cardShape).min(1).m
 const directionShape = z.enum(["front", "back"]);
 export const MAX_LEARN_ROUNDS = 4;
 export const NEW_CARDS_PER_DAY = 10;
+/** A learn session covers a small unit, so it ends with a clear result instead of running through a whole set. */
+export const LEARN_UNIT = 8;
 const modeShape = z.enum(["learn", "cram", "review"]);
 const filterShape = z.enum(["all", "starred", "mistakes"]);
 const tallyShape = z.object({ seen: z.boolean(), streak: z.number().int().min(0).max(2), missed: z.boolean() });
@@ -36,9 +38,15 @@ const reviewShape = z.object({
   lapses: z.number().int().nonnegative(), state: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
   introduced: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
+// The last swipe rating with the state before it, so exactly this rating can be taken back.
+const lastSortShape = z.object({
+  id: key, deckId: key, cardId: key, direction: directionShape,
+  before: reviewShape.nullable(), wasMistake: z.boolean(), after: z.string().datetime(),
+});
 export const workspaceShape = z.object({
   decks: z.array(deckShape).max(80), session: sessionShape.nullable(),
   reviews: z.record(reviewShape), progress: z.record(tallyShape), mistakes: z.record(z.array(key).max(400)),
+  lastSort: lastSortShape.nullable().optional(),
 });
 export type Card = z.infer<typeof cardShape>;
 export type CardInput = z.input<typeof cardInput>;
@@ -59,7 +67,8 @@ export const actionShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("continueLearn"), sessionId: key }),
   z.object({ type: z.literal("answer"), ...position, round: z.number().int().positive(), answer: z.string().max(3000), self: z.boolean().optional() }),
   z.object({ type: z.literal("rate"), ...position, grade: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }),
-  z.object({ type: z.literal("sortCard"), deckId: key, cardId: key, direction: directionShape, known: z.boolean() }),
+  z.object({ type: z.literal("sortCard"), deckId: key, cardId: key, direction: directionShape, known: z.boolean(), sortId: key.optional() }),
+  z.object({ type: z.literal("undoSort"), sortId: key }),
   z.object({ type: z.literal("restore"), data: workspaceShape }),
 ]);
 export type Action = z.input<typeof actionShape>;
@@ -96,7 +105,13 @@ export function deckDigest(deck: Pick<Deck, "title" | "cards">) {
 }
 
 export function empty(): Workspace {
-  return { decks: [], session: null, reviews: {}, progress: {}, mistakes: {} };
+  return { decks: [], session: null, reviews: {}, progress: {}, mistakes: {}, lastSort: null };
+}
+
+/** A card sits when it was learned in a learn session or has graduated in the review schedule. */
+export function secure(state: Workspace, cardId: string, direction: Direction) {
+  const key = reviewKey(cardId, direction);
+  return state.progress[key]?.streak === 2 || state.reviews[key]?.state === 2;
 }
 
 export type ImportSeparator = "\t" | ";" | ",";
@@ -263,7 +278,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
   const state = structuredClone(previous);
   if (action.type === "restore") {
     checkBackup(action.data);
-    return action.data;
+    return { ...action.data, lastSort: null };
   }
   if (action.type === "save") {
     const old = state.decks.find(d => d.id === action.deckId);
@@ -320,11 +335,30 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     const deck = state.decks.find(item => item.id === action.deckId);
     if (!deck?.cards.some(card => card.id === action.cardId)) throw new Error("Diese Karte wurde nicht gefunden.");
     const id = reviewKey(action.cardId, action.direction);
+    const before = state.reviews[id] ?? null;
     state.reviews[id] = schedule(state.reviews[id], id, action.known ? 3 : 1, now);
     const mistakeKey = reviewKey(deck.id, action.direction);
+    const wasMistake = Boolean(state.mistakes[mistakeKey]?.includes(action.cardId));
     const mistakes = (state.mistakes[mistakeKey] ?? []).filter(cardId => cardId !== action.cardId);
     if (!action.known) mistakes.push(action.cardId);
     state.mistakes[mistakeKey] = mistakes;
+    state.lastSort = action.sortId ? { id: action.sortId, deckId: deck.id, cardId: action.cardId, direction: action.direction,
+      before, wasMistake, after: state.reviews[id].due } : null;
+    return state;
+  }
+  if (action.type === "undoSort") {
+    const last = state.lastSort;
+    if (!last || last.id !== action.sortId) throw new ConflictError("Diese Bewertung kann nicht mehr zurückgenommen werden.");
+    const id = reviewKey(last.cardId, last.direction);
+    // Anything that touched the card since the swipe (editing, a review) makes the snapshot stale.
+    if (state.reviews[id]?.due !== last.after) throw new ConflictError("Diese Karte wurde inzwischen weiter gelernt. Die Bewertung bleibt bestehen.");
+    if (last.before) state.reviews[id] = last.before;
+    else delete state.reviews[id];
+    const mistakeKey = reviewKey(last.deckId, last.direction);
+    const mistakes = (state.mistakes[mistakeKey] ?? []).filter(cardId => cardId !== last.cardId);
+    if (last.wasMistake) mistakes.push(last.cardId);
+    state.mistakes[mistakeKey] = mistakes;
+    state.lastSort = null;
     return state;
   }
   if (action.type === "start" || action.type === "continueLearn") {
@@ -340,7 +374,9 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       ? deck.cards.filter(c => finished.initial.includes(c.id) && finished.tally[c.id]?.streak < 2)
       : deck.cards.filter(c => config.filter === "all" || (config.filter === "starred" ? c.starred : recent.includes(c.id)));
     if (action.type === "start" && action.mode === "review") cards = reviewQueue(state, cards, action.direction, now, action.dueOnly);
-    else cards = order(cards);
+    else if (action.type === "start" && action.mode === "learn") {
+      cards = order(cards).filter(c => (state.progress[reviewKey(c.id, action.direction)]?.streak ?? 0) < 2).slice(0, LEARN_UNIT);
+    } else cards = order(cards);
     const initial = cards.map(c => c.id);
     const tally = Object.fromEntries(cards.map(c => [c.id, config.mode === "learn"
       ? state.progress[reviewKey(c.id, config.direction)] ?? blank() : blank()]));

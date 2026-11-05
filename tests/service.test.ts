@@ -110,3 +110,18 @@ test("Sites erhält eine vollständige MCP Discovery und findet beide Werkzeuge"
   );
   assert.deepEqual(list.result.tools.map(item => item.name), ["kalo_read_selection", "kalo_create_draft"]);
 });
+
+test("Rückgängig über die API und veraltete Rücknahmen", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
+  const deck = saved.workspace.decks[0];
+  const sortId = crypto.randomUUID();
+  const sort = { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true, sortId };
+  assert.equal((await api(request("alice", { action: sort }), store, now)).status, 200);
+  const undone = await api(request("alice", { action: { type: "undoSort", sortId } }), store, now);
+  assert.equal(undone.status, 200);
+  assert.deepEqual((await data<ApiReply>(undone)).workspace.reviews, {});
+  const again = await api(request("alice", { action: { type: "undoSort", sortId } }), store, now);
+  assert.equal(again.status, 409);
+  assert.equal((await data<ApiReply>(again)).workspace.decks.length, 1, "der aktuelle Stand kommt mit");
+});

@@ -7,7 +7,17 @@ export type Editor = { title: string; cards: EditCard[]; deckId?: string; draftI
 export type Extra = { type: "share"; deckId: string; cardIds: string[] } | { type: "discard"; draftId: string } | { type: "revoke"; token: string };
 export type View = "home" | "deck" | "editor" | "import" | "cards" | "study" | "chat" | "settings";
 export type MutateResult = Data & { error?: string; token?: string };
-export type Mutate = (action: Action | Extra, options?: { queue?: boolean }) => Promise<MutateResult | null>;
+export type MutateOptions = {
+  /** Wait for earlier actions instead of being dropped while one runs (card swipes, undo, stars). */
+  queue?: boolean;
+  /** The caller shows its own message on failure. */
+  silent?: boolean;
+  /** Checked right before sending; true skips the request and counts as success. */
+  skip?: () => boolean;
+  /** Called in order with the outcome, before the next queued action starts. Status 0 means no connection. */
+  onDone?: (ok: boolean, status: number) => void;
+};
+export type Mutate = (action: Action | Extra, options?: MutateOptions) => Promise<MutateResult | null>;
 export type CardsStart = { key: string; order: string[]; index: number; flipped: boolean };
 export type LastActivity =
   | { mode: "cards"; deckId: string; cardId: string; order: string[]; direction: Direction; flipped: boolean }
