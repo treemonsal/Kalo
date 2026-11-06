@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { dayOf, shuffle, type Deck, type Direction, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
-import { GoalBanner, NextStepActions } from "./progress-ui";
+import { GoalBanner, NextStepActions, ResultDonut } from "./progress-ui";
 import { play } from "./sound";
 import type { Problem } from "./feedback";
 import Flashcard, { type FlashcardHandle } from "./flashcard";
@@ -178,10 +178,8 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
     <span className="sr-only" role="status">{announce}</span>
 
     {sorted || !card ? <section className="panel finish">
-      <span className="finish-mark"><Icon kind="check" size="l" /></span>
-      <h2>Set durchgesehen</h2>
-      <p>{known === 1 ? "Eine Karte kannst du" : known + " Karten kannst du"}{later.length ? ", " + (later.length === 1 ? "eine übst du" : later.length + " übst du") + " gleich nochmals" : ""}.
-        {" "}Deine Bewertungen fliessen in die Wiederholung ein.</p>
+      <h2>{later.length ? "Set durchgesehen" : "Alles gewusst"}</h2>
+      <ResultDonut known={known} later={later.length} total={visible.length} />
       <GoalBanner workspace={workspace} now={now} />
       <div className="actions">
         {later.length > 0 ? <button className="button primary" autoFocus onClick={() => restart(later)}><Icon kind="repeat" /> {later.length === 1 ? "Eine Karte" : later.length + " Karten"} nochmals</button>

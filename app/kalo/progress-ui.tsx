@@ -130,3 +130,39 @@ export async function shareLink(url: string, title: string): Promise<"shared" | 
     return error instanceof DOMException && error.name === "AbortError" ? "shared" : "failed";
   }
 }
+
+/** End of a card pass: share known (green), still learning (red) and skipped (grey), like a donut chart. */
+export function ResultDonut({ known, later, total }: { known: number; later: number; total: number }) {
+  const radius = 52;
+  const length = 2 * Math.PI * radius;
+  const skipped = Math.max(0, total - known - later);
+  const percent = Math.round((known / Math.max(1, total)) * 100);
+  const segments = [
+    { key: "known", value: known, className: "donut-known" },
+    { key: "later", value: later, className: "donut-later" },
+    { key: "skipped", value: skipped, className: "donut-skipped" },
+  ].filter(item => item.value > 0);
+  // A small gap separates the segments when there is more than one.
+  const gap = segments.length > 1 ? 4 : 0;
+  let offset = 0;
+  return <div className="result" role="img" aria-label={percent + " Prozent kannst du. " + known + " kann ich, " + later + " noch nicht" + (skipped ? ", " + skipped + " übersprungen" : "") + "."}>
+    <span className="donut">
+      <svg viewBox="0 0 128 128" aria-hidden="true">
+        <circle cx="64" cy="64" r={radius} className="donut-track" />
+        {segments.map(item => {
+          const size = Math.max(0, (item.value / Math.max(1, total)) * length - gap);
+          const circle = <circle key={item.key} cx="64" cy="64" r={radius} className={"donut-segment " + item.className}
+            strokeDasharray={size + " " + (length - size)} strokeDashoffset={-offset} style={{ "--size": size + "px", "--rest": length - size + "px" } as CSSProperties} />;
+          offset += (item.value / Math.max(1, total)) * length;
+          return circle;
+        })}
+      </svg>
+      <span className="donut-label"><strong>{percent}<small>%</small></strong><span>kannst du</span></span>
+    </span>
+    <ul className="donut-legend" aria-hidden="true">
+      <li className="donut-known"><i /><span>Kann ich</span><strong>{known}</strong></li>
+      <li className="donut-later"><i /><span>Noch nicht</span><strong>{later}</strong></li>
+      {skipped > 0 && <li className="donut-skipped"><i /><span>Übersprungen</span><strong>{skipped}</strong></li>}
+    </ul>
+  </div>;
+}
