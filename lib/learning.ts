@@ -55,10 +55,20 @@ const lastSortShape = z.object({
   id: key, deckId: key, cardId: key, direction: directionShape,
   before: reviewShape.nullable(), wasMistake: z.boolean(), after: z.string().datetime(),
 });
+/** Where someone stands in the card mode of a set, so leaving and coming back continues the same pass. */
+const passShape = z.object({
+  filter: filterShape, order: z.array(key).max(400), index: z.number().int().min(0).max(400),
+  known: z.array(key).max(400), later: z.array(key).max(400), done: z.boolean(), updated: z.number(),
+});
+export type Pass = z.infer<typeof passShape>;
+export const MAX_PASSES = 40;
+export const passKey = (deckId: string, direction: Direction) => deckId + ":" + direction;
+
 export const workspaceShape = z.object({
   decks: z.array(deckShape).max(80), session: sessionShape.nullable(),
   reviews: z.record(reviewShape), progress: z.record(tallyShape), mistakes: z.record(z.array(key).max(400)),
   lastSort: lastSortShape.nullable().optional(),
+  passes: z.record(passShape).optional(),
   stats: z.object({ days: z.record(dayShape), lastAt: z.number().optional() }).optional(),
   goal: z.number().int().min(5).max(200).optional(),
 });
@@ -83,6 +93,8 @@ export const actionShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rate"), ...position, grade: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }),
   z.object({ type: z.literal("sortCard"), deckId: key, cardId: key, direction: directionShape, known: z.boolean(), sortId: key.optional() }),
   z.object({ type: z.literal("undoSort"), sortId: key }),
+  z.object({ type: z.literal("cardPass"), deckId: key, direction: directionShape, filter: filterShape,
+    order: z.array(key).max(400), index: z.number().int().min(0).max(400), known: z.array(key).max(400), later: z.array(key).max(400), done: z.boolean() }),
   z.object({ type: z.literal("setGoal"), goal: z.number().int().min(5).max(200) }),
   z.object({ type: z.literal("setDeckMeta"), deckId: key, examDate: dateKey.nullable().optional(), subject: z.string().trim().max(40).nullable().optional() }),
   z.object({ type: z.literal("restore"), data: workspaceShape }),
@@ -354,6 +366,21 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     }
     return state;
   }
+  if (action.type === "cardPass") {
+    const deck = state.decks.find(item => item.id === action.deckId);
+    if (!deck) throw new Error("Dieses Set wurde nicht gefunden.");
+    const ids = new Set(deck.cards.map(card => card.id));
+    const keepKnown = (list: string[]) => list.filter(id => ids.has(id));
+    const passes = state.passes ??= {};
+    passes[passKey(deck.id, action.direction)] = {
+      filter: action.filter, order: keepKnown(action.order), index: action.index,
+      known: keepKnown(action.known), later: keepKnown(action.later), done: action.done, updated: now,
+    };
+    // Only the most recent passes are kept.
+    const stale = Object.entries(passes).sort((a, b) => b[1].updated - a[1].updated).slice(MAX_PASSES);
+    for (const [staleKey] of stale) delete passes[staleKey];
+    return state;
+  }
   if (action.type === "delete") {
     const old = state.decks.find(d => d.id === action.deckId);
     if (!old) throw new Error("Dieses Set wurde nicht gefunden.");
@@ -361,6 +388,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     delete state.mistakes[reviewKey(old.id, "front")];
     delete state.mistakes[reviewKey(old.id, "back")];
     state.decks = state.decks.filter(d => d.id !== old.id);
+    if (state.passes) for (const direction of ["front", "back"] as const) delete state.passes[passKey(old.id, direction)];
     if (state.session?.deckId === old.id) state.session = null;
     return state;
   }

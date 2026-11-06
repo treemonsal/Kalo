@@ -1,4 +1,4 @@
-import type { Action, CardInput, Direction, Workspace } from "../../lib/learning";
+import type { Action, CardInput, Direction, Filter, Workspace } from "../../lib/learning";
 import type { PartnerSummary, SocialAction } from "../../lib/social";
 
 export type Draft = { id: string; title: string; cards: CardInput[]; created: number };
@@ -24,7 +24,8 @@ export type MutateOptions = {
   onDone?: (ok: boolean, status: number) => void;
 };
 export type Mutate = (action: Action | Extra, options?: MutateOptions) => Promise<MutateResult | null>;
-export type CardsStart = { key: string; order: string[]; index: number; flipped: boolean };
+export type CardsStart = { key: string; order: string[]; index: number; flipped: boolean; filter: Filter; pass: Record<string, boolean> };
+export type PassSnapshot = { order: string[]; index: number; pass: Record<string, boolean>; done: boolean };
 export type LastActivity =
   | { mode: "cards"; deckId: string; cardId: string; order: string[]; direction: Direction; flipped: boolean }
   | { mode: "study"; sessionId: string };

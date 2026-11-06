@@ -10,7 +10,7 @@ type Props = {
   workspace: Workspace; deck: Deck; time: number; busy: boolean;
   direction: Direction; filter: Filter; writing: boolean;
   onDirection: (value: Direction) => void; onFilter: (value: Filter) => void; onWriting: (value: boolean) => void;
-  onHome: () => void; onEdit: () => void; onCards: (ids: string[]) => void; onStart: (mode: "learn" | "cram" | "review") => void;
+  onHome: () => void; onEdit: () => void; onCards: () => void; onStart: (mode: "learn" | "cram" | "review") => void;
   onChat: () => void; onResume?: () => void; onStar: (cardId: string, starred: boolean) => void;
   shareToken?: string; onMeta: (meta: { examDate?: string | null; subject?: string | null }) => void; onShare: () => void; onDuel: () => void;
 };
@@ -24,6 +24,8 @@ export default function DeckView(props: Props) {
   const done = deck.cards.filter(card => secure(workspace, card.id, direction)).length;
   const open = visible.filter(card => (workspace.progress[card.id + ":" + direction]?.streak ?? 0) < 2).length;
   const starred = deck.cards.filter(card => card.starred).length;
+  const saved = workspace.passes?.[deck.id + ":" + direction];
+  const resume = saved && !saved.done && saved.filter === filter && saved.index > 0 ? saved : null;
   const exam = examIn(deck, time);
   const subjects = [...new Set(workspace.decks.map(item => item.subject).filter(Boolean))] as string[];
   const [subject, setSubject] = useState(deck.subject ?? "");
@@ -36,7 +38,7 @@ export default function DeckView(props: Props) {
     return () => { active = false; };
   }, [props.shareToken]);
   const modes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
-    { mode: "cards", icon: "cards", title: "Karten", text: String(visible.length) },
+    { mode: "cards", icon: "cards", title: "Karten", text: resume ? "weiter bei " + (resume.index + 1) + " von " + visible.length : String(visible.length) },
     { mode: "learn", icon: "target", title: "Lernen", text: open ? Math.min(open, 8) + " neu" : "0 neu" },
     { mode: "cram", icon: "bolt", title: "Pauken", text: String(visible.length) },
     { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " bereit" : "0" },
@@ -64,7 +66,7 @@ export default function DeckView(props: Props) {
 
     <div className="study-modes">
       {modes.map(item => <button key={item.mode} className="mode" data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
-        onClick={() => item.mode === "cards" ? props.onCards(visible.map(c => c.id)) : props.onStart(item.mode)}>
+        onClick={() => item.mode === "cards" ? props.onCards() : props.onStart(item.mode)}>
         <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small className="mode-count">{item.text}</small>
       </button>)}
     </div>

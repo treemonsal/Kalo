@@ -8,7 +8,7 @@ import { play } from "./sound";
 import type { Problem } from "./feedback";
 import Flashcard, { type FlashcardHandle } from "./flashcard";
 import { Icon, Key } from "./icons";
-import type { CardsStart, LastActivity } from "./types";
+import type { CardsStart, LastActivity, PassSnapshot } from "./types";
 
 export type UndoResult = "ok" | "conflict" | "offline";
 type Swipe = { id: string; cardId: string; at: number; known: boolean };
@@ -20,16 +20,18 @@ type Props = {
   onProblem: (problem: Problem | null) => void;
   onBack: () => void; onHome: () => void; onChat: (cardId: string) => void;
   onBookmark: (activity: LastActivity) => void;
+  /** Saves where this pass stands; immediate when leaving the card mode. */
+  onProgress: (snapshot: PassSnapshot, immediate?: boolean) => void;
 };
 
-export default function CardViewer({ deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, onBack, onHome, onChat, onBookmark }: Props) {
+export default function CardViewer({ deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, onBack, onHome, onChat, onBookmark, onProgress }: Props) {
   const [order, setOrder] = useState(start.order);
   const [index, setIndex] = useState(start.index);
   const [flipped, setFlipped] = useState(start.flipped);
   const [sorted, setSorted] = useState(false);
   const [last, setLast] = useState<Swipe | null>(null);
   const [entry, setEntry] = useState<{ key: string; from: -1 | 1 } | null>(null);
-  const [pass, setPass] = useState<Record<string, boolean>>({});
+  const [pass, setPass] = useState<Record<string, boolean>>(start.pass);
   const [focus, setFocus] = useState(false);
   const [announce, setAnnounce] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
@@ -53,6 +55,28 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
   // The bookmark follows the visible card only.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card?.id, deck.id, direction, flipped, sorted, order]);
+
+  // The pass is stored on the server, so leaving the set, reloading or switching devices continues here.
+  const snapshot = useRef<PassSnapshot | null>(null);
+  useEffect(() => {
+    snapshot.current = { order: visible, index: position, pass, done: sorted };
+    onProgress(snapshot.current);
+  // Saved whenever the place in the pass changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, position, pass, sorted]);
+  // Leaving the card mode saves at once. The latest callback sits in a ref, so this runs only on unmount.
+  const progress = useRef(onProgress);
+  useEffect(() => { progress.current = onProgress; });
+  useEffect(() => () => { if (snapshot.current) progress.current(snapshot.current, true); }, []);
+
+  function startOver() {
+    setIndex(0);
+    setSorted(false);
+    setFlipped(false);
+    setLast(null);
+    setPass({});
+    setEntry(null);
+  }
 
   function step(amount: number) {
     setIndex(current => Math.max(0, Math.min(visible.length - 1, current + amount)));
@@ -174,6 +198,7 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
       <div className="swipe-status">
         {last ? <span className={last.known ? "rating-known" : "rating-again"} key={last.id}>
           <Icon kind={last.known ? "check" : "repeat"} /> {last.known ? "Ich kann das" : "Später üben"}</span>
+          : position > 0 ? <button className="text-button quiet" onClick={startOver}><Icon kind="repeat" /> Von vorne</button>
           : <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>}
         {undoButton}
       </div>

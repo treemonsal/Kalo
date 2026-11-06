@@ -20,7 +20,7 @@ import SettingsView from "./settings-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
 import { applyAppearance, syncThemeColor } from "./theme";
-import { freshEditor, row, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult, type View } from "./types";
+import { freshEditor, row, type PassSnapshot, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult, type View } from "./types";
 
 const DEFAULT_CHAT = "https://chatgpt.com/";
 const MAX_CARDS = 400;
@@ -372,10 +372,39 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate("study");
   }
 
-  function openCards(order: string[], index = 0, flipped = false) {
-    setCardsStart({ key: crypto.randomUUID(), order, index, flipped });
+  function cardsIn(target: Deck, side: Direction, selection: Filter) {
+    const recent = workspace?.mistakes[target.id + ":" + side] ?? [];
+    return target.cards.filter(card => selection === "all" || (selection === "starred" ? card.starred : recent.includes(card.id))).map(card => card.id);
+  }
+
+  /** Opens the card mode and continues an unfinished pass of this set, direction and selection. */
+  function openCards(target: Deck, side: Direction, selection: Filter, fallback?: { order: string[]; index: number; flipped: boolean }) {
+    const saved = workspace?.passes?.[target.id + ":" + side];
+    const ids = cardsIn(target, side, saved && !saved.done && !fallback ? saved.filter : selection);
+    if (saved && !saved.done && (fallback || saved.filter === selection)) {
+      const order = saved.order.filter(id => ids.includes(id) || target.cards.some(card => card.id === id));
+      for (const id of ids) if (!order.includes(id)) order.push(id);
+      const pass = Object.fromEntries([...saved.known.map(id => [id, true]), ...saved.later.map(id => [id, false])]);
+      setFilter(saved.filter);
+      setCardsStart({ key: crypto.randomUUID(), order, index: Math.min(saved.index, Math.max(0, order.length - 1)), flipped: false, filter: saved.filter, pass });
+    } else {
+      setCardsStart({ key: crypto.randomUUID(), order: fallback?.order ?? ids, index: fallback?.index ?? 0, flipped: fallback?.flipped ?? false, filter: selection, pass: {} });
+    }
     navigate("cards");
   }
+
+  const progressTimer = useRef(0);
+  const saveProgress = useCallback((target: Deck, side: Direction, selection: Filter, snapshot: PassSnapshot, immediate?: boolean) => {
+    window.clearTimeout(progressTimer.current);
+    const send = () => void mutate({
+      type: "cardPass", deckId: target.id, direction: side, filter: selection, order: snapshot.order, index: snapshot.index,
+      known: Object.keys(snapshot.pass).filter(id => snapshot.pass[id]), later: Object.keys(snapshot.pass).filter(id => !snapshot.pass[id]), done: snapshot.done,
+    }, { queue: true, silent: true });
+    // Quick taps are bundled into one save; leaving the card mode saves at once.
+    if (immediate) send(); else progressTimer.current = window.setTimeout(send, 700);
+  // mutate reads only refs, so a stable callback is safe.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openChat(item?: Deck, cardId?: string) {
     setDeckId(item?.id ?? "");
@@ -478,7 +507,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     const at = order.indexOf(recentCard.id);
     recent = {
       title: recentDeck.title, mode: "Karten", progress: (at + 1) / order.length, detail: "Karte " + (at + 1) + " von " + order.length,
-      onOpen: () => { setDeckId(recentDeck.id); setDirection(lastActivity.direction); openCards(order, at, lastActivity.flipped); },
+      onOpen: () => { setDeckId(recentDeck.id); setDirection(lastActivity.direction); openCards(recentDeck, lastActivity.direction, "all", { order, index: at, flipped: lastActivity.flipped }); },
     };
   }
 
@@ -517,7 +546,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
-          onHome={() => navigate("home")} onEdit={() => edit(deck)} onCards={ids => openCards(ids)} onStart={mode => void start(mode)}
+          onHome={() => navigate("home")} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
           onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume : undefined}
           onStar={(cardId, starred) => void mutate({ type: "star", deckId: deck.id, cardId, starred }, { queue: true })}
           shareToken={data?.published?.[deck.id]} onMeta={meta => void mutate({ type: "setDeckMeta", deckId: deck.id, ...meta }, { queue: true })}
@@ -534,7 +563,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           workspace={workspace!} now={time} onStep={runStep}
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
           onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => openChat(deck, cardId)}
-          onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))} />}
+          onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
+          onProgress={(snapshot, immediate) => saveProgress(deck, direction, cardsStart.filter, snapshot, immediate)} />}
 
         {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={busy} mutate={mutate}
           onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
