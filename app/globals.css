@@ -764,3 +764,29 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .plan-panel > * { min-width: 0; }
 input[type=date] { min-width: 0; max-width: 100%; -webkit-appearance: none; appearance: none; display: block; text-align: left; }
 input[type=date]::-webkit-date-and-time-value { text-align: left; }
+
+/* Card pass result: donut with the share you know, like at the end of a Quizlet set. */
+.result { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5) var(--space-7); width: 100%; margin: var(--space-2) 0; }
+.donut { position: relative; display: grid; place-items: center; width: 148px; height: 148px; flex: none; }
+.donut svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.donut-track { fill: none; stroke: var(--line); stroke-width: 14; }
+.donut-segment { fill: none; stroke-width: 14; stroke-linecap: butt; animation: donut-draw 900ms var(--ease-settle) both; }
+.donut-segment.donut-known { stroke: var(--known-ink); }
+.donut-segment.donut-later { stroke: var(--wrong-ink); animation-delay: 120ms; }
+.donut-segment.donut-skipped { stroke: var(--line-strong); animation-delay: 200ms; }
+@keyframes donut-draw { from { stroke-dasharray: 0 calc(var(--size) + var(--rest)); } }
+.donut-label { position: relative; display: grid; justify-items: center; line-height: 1.05; }
+.donut-label strong { font-size: 2.3rem; font-weight: 760; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.donut-label small { font-size: 1.1rem; font-weight: 700; margin-left: 2px; }
+.donut-label span { color: var(--muted); font-size: var(--fs-footnote); }
+.donut-legend { display: grid; gap: var(--space-3); min-width: 180px; flex: 1; }
+.donut-legend li { display: flex; align-items: center; gap: var(--space-3); font-size: var(--fs-callout); }
+.donut-legend i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.donut-legend span { flex: 1; color: var(--muted); font-weight: 600; }
+.donut-legend strong { font-size: var(--fs-title); font-weight: 760; font-variant-numeric: tabular-nums; }
+.donut-legend .donut-known i { background: var(--known-ink); }
+.donut-legend .donut-known strong { color: var(--known-ink); }
+.donut-legend .donut-later i { background: var(--wrong-ink); }
+.donut-legend .donut-later strong { color: var(--wrong-ink); }
+.donut-legend .donut-skipped i { background: var(--line-strong); }
+@media (prefers-reduced-motion: reduce) { .donut-segment { animation: none; } }
