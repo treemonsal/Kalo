@@ -67,7 +67,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, reminde
     <section className="panel flow"><h2>Darstellung</h2>
       <div className="setting"><span className="setting-label" id="scheme">Farbschema</span>
         <div className="appearance" role="radiogroup" aria-labelledby="scheme">
-          {([["system", "System"], ["light", "Hell"], ["dark", "Dunkel"]] as const).map(([value, label]) =>
+          {([["dark", "Dunkel"], ["light", "Hell"], ["system", "System"]] as const).map(([value, label]) =>
             <label key={value}><input type="radio" name="appearance" value={value} checked={theme === value} onChange={() => onTheme(value)} /><span>{label}</span></label>)}
         </div></div>
     </section>

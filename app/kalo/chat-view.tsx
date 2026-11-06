@@ -26,7 +26,7 @@ export default function ChatView({ deck, presetCard, confirm, drafts, busy, chat
   const shared = "Nutze das Kalo Plugin mit diesem Freigabecode " + shareCode + ". " + task;
 
   return <>
-    {deck && <div className="view-bar"><button className="icon-button" aria-label={"Zurück zu " + deck.title} title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>}
+    {deck && <div className="view-bar"><button className="text-button" aria-label={"Zurück zu " + deck.title} onClick={onBack}><Icon kind="back" /> {deck.title}</button></div>}
     <header className="page-head"><h1>Mit ChatGPT lernen</h1>
       <a className="button primary" href={chatUrl} target="_blank" rel="noreferrer">ChatGPT öffnen <Icon kind="external" /></a></header>
     {deck && <section className="panel flow">

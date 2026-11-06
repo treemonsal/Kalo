@@ -12,7 +12,7 @@ export default function ImportView({ room, onBack, onAccept, onError }: Props) {
   const [imported, setImported] = useState<ReturnType<typeof parseImport> | null>(null);
 
   return <>
-    <div className="view-bar"><button className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
+    <div className="view-bar"><button className="text-button" onClick={onBack}><Icon kind="back" /> Zurück</button></div>
     <header className="page-head"><div><h1>Text importieren</h1>
       <p className="lead">Füge eine Liste ein oder öffne eine Datei aus Quizlet, Excel oder einer Tabelle.</p></div></header>
     <section className="panel flow">

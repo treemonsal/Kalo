@@ -141,7 +141,7 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
 
   if (!card && !sorted) return <section className="panel flow"><h1>Karte nicht verfügbar</h1><p>Diese Karte wurde inzwischen gelöscht.</p><button className="button" onClick={onBack}>Zum Set</button></section>;
 
-  const undoButton = last && <button className="pill-button" onClick={() => undo()}><Icon kind="undo" /> Rückgängig <Key>Z</Key></button>;
+  const undoButton = last && <button className="text-button" onClick={() => undo()}><Icon kind="undo" /> Rückgängig <Key>Z</Key></button>;
   const content = <section className="card-viewer">
     <header className="card-toolbar">
       <button className="icon-button" aria-label={focus ? "Vollbild verlassen" : "Zurück zum Set"} title={focus ? "Vollbild verlassen" : "Zurück zum Set"} onClick={focus ? closeFocus : onBack}><Icon kind="back" /></button>
@@ -183,7 +183,7 @@ export default function CardViewer({ deck, start, direction, workspace, now, onS
       </div>
       <div className="card-controls">
         <button className="icon-button" disabled={position === 0} aria-label="Vorherige Karte" title="Vorherige Karte" onClick={() => step(-1)}><Icon kind="chevronLeft" /></button>
-        <button className="icon-button" aria-label="Karte mit ChatGPT erklären lassen" title="Mit ChatGPT erklären" onClick={() => onChat(card.id)}><Icon kind="chat" /></button>
+        <button className="text-button" aria-label="Karte mit ChatGPT erklären lassen" onClick={() => onChat(card.id)}><Icon kind="chat" /> Erklären</button>
         <button className="icon-button" disabled={position === visible.length - 1} aria-label="Nächste Karte ohne Bewertung" title="Nächste Karte" onClick={() => step(1)}><Icon kind="chevronRight" /></button>
       </div>
     </>}

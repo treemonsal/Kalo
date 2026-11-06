@@ -22,7 +22,7 @@ export default function EditorView({ editor, busy, onChange, onSave, onBack, onI
   const lines = (value: string) => value.split("\n").map(s => s.trim()).filter(Boolean);
 
   return <form onSubmit={onSave}>
-    <div className="view-bar"><button type="button" className="icon-button" aria-label="Zurück" title="Zurück" onClick={onBack}><Icon kind="back" /></button></div>
+    <div className="view-bar"><button type="button" className="text-button" onClick={onBack}><Icon kind="back" /> Zurück</button></div>
     <header className="page-head"><div><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
 </div></header>
     {fresh && <button type="button" className="import-card" onClick={onImportNew}>
