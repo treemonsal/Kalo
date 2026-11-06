@@ -44,8 +44,8 @@ export default function DeckView(props: Props) {
 
   return <>
     <div className="view-bar">
-      <button className="icon-button" aria-label="Zur Bibliothek" title="Zur Bibliothek" onClick={props.onHome}><Icon kind="back" /></button>
-      <button className="button small" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
+      <button className="text-button" aria-label="Zurück zur Bibliothek" onClick={props.onHome}><Icon kind="back" /> Bibliothek</button>
+      <button className="text-button" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
     </div>
     <header className="page-head">
       <div>
@@ -78,9 +78,9 @@ export default function DeckView(props: Props) {
     </section>
 
     <div className="actions social-actions">
-      <button className="button" onClick={props.onShare}><Icon kind="share" /> Teilen{imports ? " · " + imports + (imports === 1 ? " nutzt es" : " nutzen es") : ""}</button>
-      <button className="button" onClick={props.onDuel}><Icon kind="swords" /> Duell</button>
-      <button className="button" onClick={props.onChat}><Icon kind="chat" /> ChatGPT</button>
+      <button className="text-button" onClick={props.onShare}><Icon kind="share" /> Teilen{imports ? " · " + imports + (imports === 1 ? " nutzt es" : " nutzen es") : ""}</button>
+      <button className="text-button" onClick={props.onDuel}><Icon kind="swords" /> Duell</button>
+      <button className="text-button" onClick={props.onChat}><Icon kind="chat" /> ChatGPT</button>
     </div>
 
     <details className="panel options-panel">

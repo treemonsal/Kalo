@@ -74,7 +74,7 @@ export default function DuelView({ token, mutate, onHome, onShare }: Props) {
   const correct = answers.filter((answer, i) => answer === duel.questions[i]?.answer).length;
 
   return <section className="duel">
-    <div className="view-bar"><button className="icon-button" aria-label="Zur Bibliothek" title="Zur Bibliothek" onClick={onHome}><Icon kind="back" /></button>
+    <div className="view-bar"><button className="text-button" aria-label="Zurück zur Bibliothek" onClick={onHome}><Icon kind="back" /> Bibliothek</button>
       {phase === "play" && <span className="duel-clock" aria-live="off"><Icon kind="bolt" /> {seconds(elapsed)}</span>}</div>
     <header className="page-head"><div><span className="eyebrow">Duell · {duel.ownerName}</span><h1>{duel.title}</h1></div></header>
 

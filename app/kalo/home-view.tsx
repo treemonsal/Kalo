@@ -59,8 +59,8 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       </div>
       <ul className="due-list">{dueSets.map(item => <li key={item.deck.id + item.side}>
         <div><strong>{item.deck.title}</strong><span><Icon kind="cards" size="s" /> {item.count}{dueSets.some(other => other.deck.id === item.deck.id && other.side !== item.side) ? (item.side === "front" ? " · Vorderseite" : " · Rückseite") : ""}</span></div>
-        <button className="icon-button go" disabled={busy} onClick={() => onReview(item)}
-          aria-label={item.deck.title + " wiederholen, " + plural(item.count, "Karte", "Karten") + (item.side === "front" ? ", Vorderseite zuerst" : ", Rückseite zuerst")}><Icon kind="forward" /></button>
+        <button className="text-button" disabled={busy} onClick={() => onReview(item)}
+          aria-label={item.deck.title + " wiederholen, " + plural(item.count, "Karte", "Karten") + (item.side === "front" ? ", Vorderseite zuerst" : ", Rückseite zuerst")}><Icon kind="repeat" /> Üben</button>
       </li>)}</ul>
     </section> : workspace.decks.length > 0 && Number.isFinite(nextReview) && <p className="quiet-line"><Icon kind="check" /> Nächste Wiederholung {dateFormat.format(nextReview)}</p>}
 
