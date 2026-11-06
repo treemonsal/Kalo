@@ -241,3 +241,18 @@ test("Eine Lerneinheit umfasst höchstens acht offene Karten", () => {
   assert.equal(s.session?.done, true);
   assert.equal(s.session?.initial.length, 0);
 });
+
+test("Der Kartenmodus merkt sich Reihenfolge, Position und Bewertungen pro Set", () => {
+  const { state, deck } = setup(5);
+  const ids = deck.cards.map(card => card.id);
+  const pass = (order: string[]): Action => ({ type: "cardPass", deckId: deck.id, direction: "front", filter: "all", order, index: 2,
+    known: [ids[4]], later: [ids[3]], done: false });
+  let s = apply(state, pass([...ids].reverse()), now);
+  assert.deepEqual(s.passes![deck.id + ":front"].order, [...ids].reverse());
+  assert.equal(s.passes![deck.id + ":front"].index, 2);
+  assert.deepEqual(s.passes![deck.id + ":front"].later, [ids[3]]);
+  const cleaned = apply(s, pass([...ids, crypto.randomUUID()]), now);
+  assert.equal(cleaned.passes![deck.id + ":front"].order.length, 5, "unbekannte Karten fallen weg");
+  s = apply(s, { type: "delete", deckId: deck.id }, now);
+  assert.equal(s.passes![deck.id + ":front"], undefined, "mit dem Set verschwindet auch der Durchgang");
+});
