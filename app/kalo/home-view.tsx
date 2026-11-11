@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { secure, type Deck, type Direction, type Workspace } from "../../lib/learning";
-import { examIn, openCards, type Step } from "../../lib/progress";
-import type { PartnerSummary } from "../../lib/social";
-import { DailyHero, MasteryRing, NextStepCard, PartnerCard, SubjectLevels } from "./progress-ui";
+import type { Deck, Direction, Workspace } from "../../lib/learning";
+import { examIn, openCards, recentDecks, type Step } from "../../lib/progress";
+import { DeckTile } from "./profile-view";
+import { DailyHero, NextStepCard } from "./progress-ui";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
 import { dateFormat, plural } from "./types";
@@ -13,17 +12,12 @@ export type DueSet = { deck: Deck; side: Direction; count: number; oldest: numbe
 export type Recent = { title: string; mode: string; detail: string; progress: number; onOpen: () => void };
 type Props = {
   workspace: Workspace; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
-  recent?: Recent; step: Step; partner?: PartnerSummary | null; onStep: (step: Step) => void; onGoal: () => void;
+  recent?: Recent; step: Step; drafts: number; onStep: (step: Step) => void; onGoal: () => void; onDrafts: () => void; onProfile: () => void;
   unsaved?: { title: string; onOpen: () => void; onDiscard: () => void };
-  onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onChat: () => void; onCreate: () => void;
+  onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onCreate: () => void;
 };
 
-export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, partner, onStep, onGoal, unsaved, onReview, onOpenDeck, onChat, onCreate }: Props) {
-  const [search, setSearch] = useState("");
-  const query = search.trim().toLocaleLowerCase("de-CH");
-  const decks = workspace.decks.filter(item => !query ||
-    [item.title, ...item.cards.flatMap(card => [card.front, card.back])]
-      .some(value => value.toLocaleLowerCase("de-CH").includes(query)));
+export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDrafts, onProfile, unsaved, onReview, onOpenDeck, onCreate }: Props) {
   const exams = workspace.decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
     .filter(item => item.days !== null && item.days <= 30).sort((a, b) => a.days! - b.days!);
   const dueByDeck = new Map<string, number>();
@@ -41,6 +35,11 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       <div className="notice-copy"><strong>{unsaved.title || "Neues Set"} ist nicht gespeichert</strong><span>Deine Änderungen sind auf diesem Gerät gesichert.</span></div>
       <div className="actions"><button className="button primary small" onClick={unsaved.onOpen}>Weiterbearbeiten</button><button className="button small" onClick={unsaved.onDiscard}>Verwerfen</button></div>
     </div>}
+
+    {drafts > 0 && <button className="continue-card" onClick={onDrafts}>
+      <span className="continue-copy"><span className="eyebrow">Von ChatGPT</span><strong>{drafts === 1 ? "1 Entwurf wartet" : drafts + " Entwürfe warten"}</strong><span className="muted">Prüfen und als Set speichern</span></span>
+      <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
+    </button>}
 
     {recent && <button className="continue-card" onClick={recent.onOpen}>
       <span className="continue-copy">
@@ -75,36 +74,13 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
         <Icon kind="chevronRight" />
       </button>)}</section>}
 
-    {partner && <PartnerCard partner={partner} />}
-    <SubjectLevels workspace={workspace} />
-
-    <section aria-labelledby="sets" className="sets">
-      <div className="section-head"><h2 id="sets">Meine Sets</h2>
-        {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Bibliothek durchsuchen</span>
-          <input type="search" value={search} placeholder="Suchen" onChange={event => setSearch(event.target.value)} /></label>}
-      </div>
-      {decks.length ? <div className="decks">{decks.map(deck => {
-        const done = deck.cards.filter(card => secure(workspace, card.id, "front") || secure(workspace, card.id, "back")).length;
-        const due = dueByDeck.get(deck.id) ?? 0;
-        const exam = examIn(deck, now);
-        const share = done / Math.max(1, deck.cards.length);
-        return <button className="deck-tile" key={deck.id} onClick={() => onOpenDeck(deck)}
-          aria-label={deck.title + ", " + plural(deck.cards.length, "Karte", "Karten") + ", " + Math.round(share * 100) + " Prozent sitzen" + (due ? ", " + due + " fällig" : "") + (exam !== null ? ", Prüfung in " + exam + " Tagen" : "")}>
-          <MasteryRing share={share} />
-          <span className="tile-title">{deck.title}</span>
-          <span className="tile-meta" aria-hidden="true">
-            <span><Icon kind="cards" size="s" /> {deck.cards.length}</span>
-            {due > 0 && <span className="due-badge"><Icon kind="repeat" size="s" /> {due}</span>}
-            {exam !== null && <span className="exam-badge"><Icon kind="calendar" size="s" /> {exam === 0 ? "heute" : exam + " T."}</span>}
-            {deck.subject && <span className="subject-badge">{deck.subject}</span>}
-          </span>
-        </button>;
-      })}</div>
-        : workspace.decks.length ? <EmptyState icon="search" title="Nichts gefunden" text={"Kein Set enthält «" + search.trim() + "»."}><button className="button" onClick={() => setSearch("")}>Suche zurücksetzen</button></EmptyState>
-          : <EmptyState icon="cards" title="Dein erstes Set">
-            <button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button>
-            <button className="button" onClick={onChat}><Icon kind="chat" /> Mit ChatGPT</button>
-          </EmptyState>}
+    {workspace.decks.length > 0 ? <section aria-labelledby="recent" className="sets">
+      <div className="section-head"><h2 id="recent">Zuletzt</h2>
+        {workspace.decks.length > 3 && <button className="text-button" onClick={onProfile}>Alle {workspace.decks.length} Sets <Icon kind="chevronRight" /></button>}</div>
+      <div className="decks">{recentDecks(workspace).map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>
     </section>
+      : <EmptyState icon="cards" title="Dein erstes Set" text="Tippe unten auf Plus. Du kannst Karten selber schreiben oder von ChatGPT erstellen lassen.">
+        <button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button>
+      </EmptyState>}
   </>;
 }

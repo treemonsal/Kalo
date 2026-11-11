@@ -203,3 +203,24 @@ test("Push: VAPID-Signatur ist gültig, Erinnerung kommt einmal am Morgen", asyn
   const text = await data<{ title: string }>(api(request("alice", undefined, "/api/workspace?notice=1"), store, morning));
   assert.match(text.title, /fällig/);
 });
+
+test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werden abgelehnt", async () => {
+  const { store, request, now } = setup();
+  type Profiled = Social & { profile: { name: string; picture: string | null; custom: boolean }; partner?: { name: string; picture?: string } | null };
+  const call = async (owner: string, action: unknown) => data<Profiled>(api(request(owner, { action }), store, now));
+  const picture = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+  const start = await data<Profiled>(api(request("alice"), store, now));
+  assert.deepEqual(start.profile, { name: "alice", picture: null, custom: false }, "ohne eigenen Namen der Anmeldename");
+  const named = await call("alice", { type: "profile", name: " Alice ", picture });
+  assert.deepEqual(named.profile, { name: "Alice", picture, custom: true });
+  assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:text/html;base64,PHNjcmlwdD4=" } }), store, now)).status, 400, "nur JPEG");
+  assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:image/jpeg;base64," + "A".repeat(130_000) } }), store, now)).status, 400, "zu gross");
+  const { token } = await call("alice", { type: "invitePartner" });
+  const bob = await call("bob", { type: "acceptPartner", token });
+  assert.equal(bob.partner?.name, "Alice", "die Einladung trägt den eigenen Namen");
+  assert.equal(bob.partner?.picture, picture);
+  await call("alice", { type: "profile", name: "", picture: null });
+  const after = await data<Profiled>(api(request("bob"), store, now));
+  assert.equal(after.partner?.picture, undefined, "entferntes Bild ist weg");
+  assert.equal((await data<Profiled>(api(request("alice"), store, now))).profile.name, "alice", "leerer Name nimmt wieder den Anmeldenamen");
+});

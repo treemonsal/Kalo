@@ -26,8 +26,8 @@ export default function ChatView({ deck, presetCard, confirm, drafts, busy, chat
   const shared = "Nutze das Kalo Plugin mit diesem Freigabecode " + shareCode + ". " + task;
 
   return <>
-    {deck && <div className="view-bar"><button className="text-button" aria-label={"Zurück zu " + deck.title} onClick={onBack}><Icon kind="back" /> {deck.title}</button></div>}
-    <header className="page-head"><h1>Mit ChatGPT lernen</h1>
+    <div className="view-bar"><button className="text-button" aria-label={deck ? "Zurück zu " + deck.title : "Zurück"} onClick={onBack}><Icon kind="back" /> {deck ? deck.title : "Zurück"}</button></div>
+    <header className="page-head"><h1>{deck ? "Mit ChatGPT lernen" : "Mit ChatGPT erstellen"}</h1>
       <a className="text-button" href={chatUrl} target="_blank" rel="noreferrer">ChatGPT öffnen <Icon kind="external" /></a></header>
     {deck && <section className="panel flow">
       <h2>{deck.title}</h2><p>Wähle bis zu {LIMIT} Karten für diesen Chat aus. Der Freigabecode gilt eine Stunde.</p>

@@ -7,10 +7,10 @@ import { row, type EditCard, type Editor } from "./types";
 type Props = {
   editor: Editor; busy: boolean; subjects: string[];
   onChange: (update: (editor: Editor) => Editor) => void;
-  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onImportNew: () => void; onDelete: () => void;
+  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onImportNew: () => void; onChat: () => void; onDelete: () => void;
 };
 
-export default function EditorView({ editor, busy, subjects, onChange, onSave, onBack, onImport, onImportNew, onDelete }: Props) {
+export default function EditorView({ editor, busy, subjects, onChange, onSave, onBack, onImport, onImportNew, onChat, onDelete }: Props) {
   const fresh = !editor.deckId && !editor.draftId && editor.cards.every(card => !card.front.trim() && !card.back.trim());
   const update = (rowId: string, value: Partial<EditCard>) =>
     onChange(current => ({ ...current, cards: current.cards.map(c => c.row === rowId ? { ...c, ...value } : c) }));
@@ -25,6 +25,11 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
     <div className="view-bar"><button type="button" className="text-button" onClick={onBack}><Icon kind="back" /> Zurück</button></div>
     <header className="page-head"><div><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
 </div></header>
+    {fresh && <button type="button" className="import-card chatgpt-card" onClick={onChat}>
+      <span className="mode-icon"><Icon kind="chat" /></span>
+      <span className="continue-copy"><strong>Mit ChatGPT erstellen</strong><span className="muted">Aus deinen Unterlagen, du prüfst danach</span></span>
+      <Icon kind="chevronRight" />
+    </button>}
     {fresh && <button type="button" className="import-card" onClick={onImportNew}>
       <span className="mode-icon"><Icon kind="import" /></span>
       <span className="continue-copy"><strong>Liste importieren</strong><span className="muted">Quizlet, Excel, CSV</span></span>

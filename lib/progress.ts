@@ -98,6 +98,18 @@ export function openCards(state: Workspace, deck: Deck, direction: Direction = "
   return deck.cards.filter(card => !secure(state, card.id, direction));
 }
 
+/** The sets used last: card passes and reviews count; unused sets follow, newest first. */
+export function recentDecks(state: Workspace, count = 3) {
+  const owner = new Map<string, string>();
+  state.decks.forEach(deck => deck.cards.forEach(card => owner.set(card.id, deck.id)));
+  const used = new Map<string, number>();
+  const touch = (deckId: string | undefined, at: number) => { if (deckId && at > (used.get(deckId) ?? 0)) used.set(deckId, at); };
+  Object.entries(state.passes ?? {}).forEach(([key, pass]) => touch(key.split(":")[0], pass.updated));
+  Object.entries(state.reviews).forEach(([key, review]) => { if (review.lastReview) touch(owner.get(key.split(":")[0]), Date.parse(review.lastReview)); });
+  return state.decks.map((deck, index) => ({ deck, at: used.get(deck.id) ?? -index - 1 }))
+    .sort((a, b) => b.at - a.at).slice(0, count).map(item => item.deck);
+}
+
 /** Days until the exam (0 = today), or null without a date or once it has passed. */
 export function examIn(deck: Deck, now: number) {
   if (!deck.examDate) return null;

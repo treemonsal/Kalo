@@ -164,7 +164,7 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
   }
 }
 
-export type PartnerSummary = { name: string; streak: number; shared: number; todayDone: boolean; todayPoints: number; goal: number };
+export type PartnerSummary = { name: string; picture?: string; streak: number; shared: number; todayDone: boolean; todayPoints: number; goal: number };
 
 export async function partnerSummary(store: AccountStore, account: Account, myId: string, now: number): Promise<PartnerSummary | null> {
   if (!account.partner) return null;
@@ -173,7 +173,7 @@ export async function partnerSummary(store: AccountStore, account: Account, myId
   const today = dayStats(theirs.workspace, dayOf(now));
   const own = streak(theirs.workspace, now);
   return {
-    name: account.partner.name, streak: own.days, shared: sharedStreak(account.workspace, theirs.workspace, now).days,
+    name: theirs.profile?.name || account.partner.name, picture: theirs.profile?.picture, streak: own.days, shared: sharedStreak(account.workspace, theirs.workspace, now).days,
     todayDone: own.todayDone, todayPoints: today.points, goal: goalOf(theirs.workspace),
   };
 }

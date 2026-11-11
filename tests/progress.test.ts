@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { apply as applyShuffled, dayOf, empty, question, type Action, type Workspace } from "../lib/learning.ts";
-import { examIn, levels, nextStep, streak, streakOf, week } from "../lib/progress.ts";
+import { examIn, levels, recentDecks, nextStep, streak, streakOf, week } from "../lib/progress.ts";
 
 const keep = <T,>(items: T[]) => items;
 const apply = (state: Workspace, action: Action, time: number) => applyShuffled(state, action, time, keep);
@@ -102,4 +102,13 @@ test("Der nächste Schritt führt nie in eine Sackgasse", () => {
   assert.equal(nextStep(s, later, englisch.id).kind, "review", "fällige Karten zuerst");
   s = apply(s, { type: "start", deckId: englisch.id, mode: "cram", direction: "front", filter: "all" }, later);
   assert.equal(nextStep(s, later).kind, "resume");
+});
+
+test("Zuletzt zeigt die zuletzt geübten Sets, danach die neusten", () => {
+  let s = deck(deck(deck(deck(empty(), "A", 3), "B", 3), "C", 3), "D", 3);
+  const a = s.decks.find(item => item.title === "A")!;
+  const b = s.decks.find(item => item.title === "B")!;
+  s = apply(s, { type: "sortCard", deckId: a.id, cardId: a.cards[0].id, direction: "front", known: true }, now);
+  s = apply(s, { type: "sortCard", deckId: b.id, cardId: b.cards[0].id, direction: "front", known: true }, now + 1000);
+  assert.deepEqual(recentDecks(s).map(item => item.title), ["B", "A", "D"]);
 });

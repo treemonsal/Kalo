@@ -8,7 +8,15 @@ type Selection = { token: string; deckId: string; title: string; cards: Card[]; 
 export type Account = {
   revision: number; workspace: Workspace; drafts: Draft[]; selections: Selection[];
   partner?: { id: string; name: string }; published?: Record<string, string>; push?: PushSettings;
+  /** Own name and picture. Without a name, the sign-in name is used. */
+  profile?: Profile;
 };
+export type Profile = { name?: string; picture?: string };
+
+/** Own profile pictures: a small square JPEG as a data URL, made in the browser. */
+export const PICTURE_PREFIX = "data:image/jpeg;base64,";
+export const PICTURE_MAX = 120_000;
+const pictureShape = z.string().max(PICTURE_MAX).refine(value => value.startsWith(PICTURE_PREFIX) && /^[A-Za-z0-9+/]+=*$/.test(value.slice(PICTURE_PREFIX.length)), "Ungültiges Bild.");
 
 export class AccountStore {
   private readonly db: D1Database;
@@ -76,9 +84,10 @@ const share = z.object({
 });
 const discard = z.object({ type: z.literal("discard"), draftId: key });
 const revoke = z.object({ type: z.literal("revoke"), token: key });
+const profile = z.object({ type: z.literal("profile"), name: z.string().trim().max(30).optional(), picture: pictureShape.nullable().optional() });
 // Actions are commands, so the server applies them to the newest state. The revision is only informational.
 const mutation = z.object({
-  revision: z.number().int().nonnegative().optional(), action: z.union([actionShape, share, discard, revoke]),
+  revision: z.number().int().nonnegative().optional(), action: z.union([actionShape, share, discard, revoke, profile]),
 });
 const WRITE_ATTEMPTS = 3;
 class InputError extends Error {}
@@ -95,8 +104,13 @@ function nameOf(req: Request) {
   }
   return req.headers.get("oai-authenticated-user-email")?.split("@")[0].slice(0, 30) || "Jemand";
 }
-function visible(account: Account) {
+/** The name others see: the own one if set, otherwise the sign-in name. */
+function displayName(account: Account, req: Request) {
+  return account.profile?.name || nameOf(req);
+}
+function visible(account: Account, req: Request) {
   return {
+    profile: { name: displayName(account, req), picture: account.profile?.picture ?? null, custom: Boolean(account.profile?.name) },
     workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {},
     push: { enabled: Boolean(account.push?.subs.length), morning: account.push?.morning ?? "06:45", evening: account.push?.evening ?? "19:30" },
   };
@@ -151,7 +165,12 @@ function change(account: Account, action: Mutation, now: number) {
       ...account.selections].slice(0, 5);
     return token;
   }
-  if (action.type === "revoke") {
+  if (action.type === "profile") {
+    const next: Profile = { ...account.profile };
+    if (action.name !== undefined) { if (action.name) next.name = action.name; else delete next.name; }
+    if (action.picture !== undefined) { if (action.picture) next.picture = action.picture; else delete next.picture; }
+    account.profile = next;
+  } else if (action.type === "revoke") {
     account.selections = account.selections.filter(item => item.token !== action.token);
   } else if (action.type === "discard") {
     account.drafts = account.drafts.filter(draft => draft.id !== action.draftId);
@@ -194,7 +213,7 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     const known = params.get("known");
     if (known !== null && Number(known) === await store.revision(owner)) return json({ unchanged: true, revision: Number(known) });
     const account = await store.read(owner);
-    return json({ ...visible(account), partner: await partnerSummary(store, account, owner, now), pushKey: options.pushKey ?? null });
+    return json({ ...visible(account, req), partner: await partnerSummary(store, account, owner, now), pushKey: options.pushKey ?? null });
   }
   if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
   if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);
@@ -202,10 +221,10 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     const input = await body(req);
     const social = z.object({ action: socialShape }).safeParse(input);
     if (social.success) {
-      const reply = await runSocial(store, { id: owner, name: nameOf(req) }, social.data.action, now);
+      const reply = await runSocial(store, { id: owner, name: displayName(await store.read(owner), req) }, social.data.action, now);
       const { account, ...rest } = reply.body as { account?: Account };
       if (!account) return json(rest, reply.status);
-      return json({ ...visible(account), partner: await partnerSummary(store, account, owner, now), ...rest }, reply.status);
+      return json({ ...visible(account, req), partner: await partnerSummary(store, account, owner, now), ...rest }, reply.status);
     }
     const parsed = mutation.safeParse(input);
     if (!parsed.success) return json({ error: "Prüfe die Felder. Pro Karte sind 1500 Zeichen je Seite erlaubt." }, 400);
@@ -217,11 +236,11 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
       catch (error) {
         if (!(error instanceof Rejection)) throw error;
         // The current state goes along, so the client shows what actually happened.
-        return json({ ...visible(account), error: error.message }, error.status);
+        return json({ ...visible(account, req), error: error.message }, error.status);
       }
-      if (await store.write(owner, account)) return json({ ...visible(account), revision: account.revision + 1, token });
+      if (await store.write(owner, account)) return json({ ...visible(account, req), revision: account.revision + 1, token });
     }
-    return json({ ...visible(await store.read(owner)), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut." }, 409);
+    return json({ ...visible(await store.read(owner), req), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut." }, 409);
   } catch (error) {
     if (error instanceof InputError) return json({ error: error.message }, 400);
     console.error("Kalo workspace write failed");

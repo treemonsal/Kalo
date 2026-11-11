@@ -94,9 +94,18 @@ export function GoalBanner({ workspace, now }: { workspace: Workspace; now: numb
   return <p className="goal-line done"><GoalRing points={today.points} goal={goal} size={36} /> Tagesziel erreicht · Serie {current.days} {current.days === 1 ? "Tag" : "Tage"}</p>;
 }
 
+/** Own picture, or the first letter of the name without one. */
+export function Avatar({ name, picture, size = 40 }: { name: string; picture?: string | null; size?: number }) {
+  return <span className="avatar" aria-hidden="true" style={{ width: size, height: size, fontSize: size * 0.42 }}>
+    {/* A small data URL from the profile, image optimisation would add nothing. */}
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    {picture ? <img src={picture} alt="" width={size} height={size} /> : (name.trim()[0] ?? "K").toUpperCase()}
+  </span>;
+}
+
 export function PartnerCard({ partner }: { partner: PartnerSummary }) {
   return <section className="partner-card" aria-label="Lernpartner">
-    <span className="partner-avatar" aria-hidden="true">{partner.name.slice(0, 1).toUpperCase()}</span>
+    <Avatar name={partner.name} picture={partner.picture} />
     <div className="partner-copy">
       <strong>{partner.name}</strong>
       <span className="partner-flame" data-on={partner.shared > 0}><Icon kind="flame" filled={partner.shared > 0} size="s" /> {partner.shared} {partner.shared === 1 ? "Tag" : "Tage"} gemeinsam</span>

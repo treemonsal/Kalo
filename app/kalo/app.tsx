@@ -5,7 +5,7 @@ import type { Appearance } from "../../lib/appearance";
 import { dayOf, deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
-import { shareLink } from "./progress-ui";
+import { Avatar, shareLink } from "./progress-ui";
 import { play } from "./sound";
 import CardViewer, { type UndoResult } from "./card-viewer";
 import ChatView from "./chat-view";
@@ -17,6 +17,8 @@ import { Icon } from "./icons";
 import ImportView from "./import-view";
 import { useReminders } from "./reminders";
 import SettingsView from "./settings-view";
+import ProfileView from "./profile-view";
+import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
 import { applyAppearance, syncThemeColor } from "./theme";
@@ -413,6 +415,10 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function openDeck(item: Deck) {
+    setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck");
+  }
+
   function openChat(item?: Deck, cardId?: string) {
     setDeckId(item?.id ?? "");
     setChatCard(cardId);
@@ -492,6 +498,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const dueCount = dueSets.reduce((total, item) => total + item.count, 0);
   // Keeps sending the in-app reminder for people who switched it on earlier.
   useReminders(accountId, dueCount, time);
+  const dueByDeck = new Map<string, number>();
+  dueSets.forEach(item => dueByDeck.set(item.deck.id, (dueByDeck.get(item.deck.id) ?? 0) + item.count));
   const nextReview = Object.values(workspace?.reviews ?? {}).reduce((next, item) => {
     const due = Date.parse(item.due);
     return due > time ? Math.min(next, due) : next;
@@ -519,7 +527,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     };
   }
 
-  const libraryView = view !== "chat" && view !== "settings";
+  const profileView = view === "profile" || view === "stats" || view === "settings";
+  const homeView = !profileView && view !== "chat";
   const creating = view === "editor" || view === "import";
   const draftCount = data?.drafts.length ?? 0;
 
@@ -532,7 +541,11 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/kalo-mark.svg" alt="" width={30} height={30} /> Kalo
         </button>
-        <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" aria-current={view === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Icon kind="settings" /></button>
+        {/* Statistics and settings belong to the profile, like in MyStyle. */}
+        {view === "profile" && <div className="topbar-actions">
+          <button className="icon-button" aria-label="Statistik" title="Statistik" onClick={() => navigate("stats")}><Icon kind="pie" /></button>
+          <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" onClick={() => navigate("settings")}><Icon kind="menu" /></button>
+        </div>}
       </header>
       <main ref={main} className="main" id="inhalt" tabIndex={-1} aria-busy={busy}>
         {data && problem && <ErrorBanner problem={problem} onDismiss={() => setProblem(null)} />}
@@ -546,11 +559,16 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
         {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
           recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined)}
-          partner={data?.partner} onStep={runStep} onGoal={() => navigate("settings")}
+          drafts={draftCount} onDrafts={() => openChat()} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
-          onOpenDeck={item => { setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck"); }}
-          onChat={() => openChat()} onCreate={() => edit()} />}
+          onOpenDeck={openDeck} onCreate={() => edit()} />}
+
+        {workspace && view === "profile" && <ProfileView workspace={workspace} now={time} busy={busy} mutate={mutate}
+          profile={data?.profile ?? { name: "Du", picture: null, custom: false }} partner={data?.partner} dueByDeck={dueByDeck}
+          onOpenDeck={openDeck} onCreate={() => edit()} onError={message => setProblem({ message })} />}
+
+        {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => history.back()} />}
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
@@ -560,7 +578,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           shareToken={data?.published?.[deck.id]}
           onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
 
-        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")}
+        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")} onChat={() => openChat()}
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
@@ -582,12 +600,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           onShare={(token, title) => void share(location.origin + "/?duel=" + token, "Duell: " + title)} />}
 
         {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} drafts={data.drafts} busy={busy} confirm={confirm}
-          chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={returnToDeck} onRefresh={() => void refresh(true)}
+          chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={deck ? returnToDeck : () => history.back()} onRefresh={() => void refresh(true)}
           onImport={() => importText("new")} onReview={draft => edit(undefined, draft)} />}
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={busy} theme={theme} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
-          pushKey={data?.pushKey} push={data?.push} partner={data?.partner} onInvite={() => void invitePartner()} onLeave={() => void leavePartner()}
+          pushKey={data?.pushKey} push={data?.push} partner={data?.partner} onInvite={() => void invitePartner()} onLeave={() => void leavePartner()} onBack={() => navigate("profile")}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onChatLink={value => {
             const url = safeChatUrl(value);
@@ -604,14 +622,15 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       {/* Outside the top bar: its backdrop filter would otherwise anchor this fixed dock to the bar. */}
       <div className="bottom-dock">
         <nav aria-label="Hauptmenü">
-          <button aria-current={libraryView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="library" /><span>Bibliothek</span></button>
-          <button aria-current={view === "chat" ? "page" : undefined} onClick={() => openChat()}><Icon kind="chat" /><span>ChatGPT</span>{draftCount > 0 && <span className="badge" aria-label={draftCount + " Entwürfe"}>{draftCount}</span>}</button>
+          <button aria-current={homeView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="home" filled={homeView} /><span>Home</span></button>
+          <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
+            onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
+            {/* Plus turns into minus while an editor is open: the vertical stroke folds away. */}
+            <svg className="icon-svg plus-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /><path className="pm-vertical" d="M12 5v14" /></svg>
+          </button>
+          <button aria-current={profileView ? "page" : undefined} aria-label="Profil" onClick={() => navigate("profile")}>
+            {data?.profile?.picture ? <Avatar name={data.profile.name} picture={data.profile.picture} size={26} /> : <Icon kind="person" filled={profileView} />}<span>Profil</span></button>
         </nav>
-        <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
-          onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
-          {/* Plus turns into minus while an editor is open: the vertical stroke folds away. */}
-          <svg className="icon-svg plus-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /><path className="pm-vertical" d="M12 5v14" /></svg>
-        </button>
       </div>
       {confirmDialog}
       {celebrate && <div className="goal-celebration" role="status">
