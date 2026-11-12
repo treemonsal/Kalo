@@ -954,7 +954,7 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 /* Due cards have a clear call to action, distinct from errors and successes. */
 .due-section { margin-bottom: var(--space-5); }
 .due-alert { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-4); border: 1.5px solid var(--again-line); border-radius: var(--radius-surface); background: var(--again-bg); color: var(--again-ink); text-align: left; box-shadow: 0 3px 14px color-mix(in srgb, var(--mark) 8%, transparent); }
-.due-alert-count { display: grid; place-items: center; min-width: 52px; min-height: 52px; padding: 0 10px; border-radius: 14px; background: var(--mark); color: #fff; font-size: 1.5rem; font-weight: 780; font-variant-numeric: tabular-nums; }
+.due-alert-count { display: grid; place-items: center; min-width: 52px; min-height: 52px; padding: 0 10px; border-radius: 14px; background: var(--mark); color: #0a092d; font-size: 1.5rem; font-weight: 780; font-variant-numeric: tabular-nums; }
 .due-alert-copy { display: grid; gap: 2px; flex: 1; }
 .due-alert-copy strong { font-size: var(--fs-headline); }
 .due-alert-copy > span { font-size: var(--fs-footnote); }
@@ -997,9 +997,14 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 @keyframes explain-in { from { opacity: .7; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
 @keyframes explain-out { to { opacity: 0; transform: translateY(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .streak-celebration { animation: fade-in 160ms ease, fade-out 160ms ease 3.15s forwards; }
+  .streak-celebration { animation: none !important; opacity: 1; transform: none; }
   .fire-outer, .fire-inner { animation: none; }
   .streak-count-track { animation: none; transform: translateY(-50%); }
   .card-explain-sheet, .card-explain-sheet[data-closing="true"] { animation: none; transition: none; }
   .due-alert:active { transform: none; }
 }
+.hero.compact { justify-content: flex-start; gap: 28px; padding: 4px var(--space-2); background: transparent; border: 0; margin-bottom: var(--space-4); }
+.hero.compact .hero-goal, .hero.compact .hero-streak { min-height: 44px; gap: 7px; font-size: var(--fs-headline); font-variant-numeric: tabular-nums; }
+.hero.compact .hero-goal > .icon-svg { color: var(--muted); }
+.hero.compact .hero-goal[data-done="true"] > .icon-svg { color: var(--known-ink); }
+.metric-goal { color: var(--muted); font-weight: 500; }

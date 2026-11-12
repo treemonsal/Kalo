@@ -90,6 +90,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const lastRefresh = useRef(0);
+  const refreshSequence = useRef(0);
   const failedSorts = useRef(new Set<string>());
   const main = useRef<HTMLElement>(null);
   const reload = useRef(() => undefined as void);
@@ -165,17 +166,20 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     const started = Date.now();
     if (pending.current || (!force && started - lastRefresh.current < 2_000)) return;
     lastRefresh.current = started;
+    const requestNumber = ++refreshSequence.current;
     try {
       const known = dataRef.current?.revision;
       const result = await fetch("/api/workspace" + (known === undefined ? "" : "?known=" + known), { cache: "no-store" });
       if (result.status === 401) { setProblem(problemFor(401, undefined, () => undefined)); return; }
       if (!result.ok) throw new Error();
       const next = await result.json() as Data | { unchanged: true; friends?: FriendSummary[]; partner?: Data["partner"] };
+      if (requestNumber !== refreshSequence.current) return;
       if (!("unchanged" in next)) accept(next);
-      else if (dataRef.current && next.friends !== undefined) accept({ ...dataRef.current, friends: next.friends, partner: next.partner });
+      else if (dataRef.current && known === dataRef.current.revision && next.friends !== undefined) accept({ ...dataRef.current, friends: next.friends, partner: next.partner });
       setTime(Date.now());
       setProblem(current => current?.action?.label === "Erneut laden" ? null : current);
     } catch {
+      if (requestNumber !== refreshSequence.current) return;
       setProblem({
         message: dataRef.current ? "Dein Lernstand konnte nicht aktualisiert werden. Prüfe die Verbindung." : "Dein Lernstand konnte nicht geladen werden. Prüfe die Verbindung.",
         action: { label: "Erneut laden", run: () => reload.current() },

@@ -52,7 +52,7 @@ export default function CardExplainSheet({ card, direction, chatUrl, onClose }: 
       <div className="explain-card"><strong>{question}</strong><p>{answer}</p></div>
       <a className="button primary" href={chatUrl} target="_blank" rel="noreferrer" onClick={() => void copy()}><Icon kind="chat" /> Mit ChatGPT erklären <Icon kind="external" size="s" /></a>
       <p className="explain-hint" role="status">{copied ? "Kopiert. In ChatGPT einfügen." : "Der Auftrag für diese Karte wird kopiert."}</p>
-      {copyFailed && <label>Auftrag zum Kopieren<textarea readOnly rows={4} value={task} autoFocus onFocus={event => event.currentTarget.select()} /></label>}
+      {copyFailed && <label>Auftrag zum Kopieren<textarea readOnly rows={4} value={task} onFocus={event => event.currentTarget.select()} /></label>}
     </div>
   </dialog>;
 }

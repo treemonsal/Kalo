@@ -31,6 +31,7 @@ function useKeys(active: boolean, handler: (key: string) => boolean) {
   useEffect(() => {
     if (!active) return;
     const listener = (event: KeyboardEvent) => {
+      if (document.querySelector("dialog[open]")) return;
       if (!typing(event) && handler(event.key)) event.preventDefault();
     };
     window.addEventListener("keydown", listener);

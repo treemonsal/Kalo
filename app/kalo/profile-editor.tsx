@@ -36,7 +36,7 @@ export default function ProfileEditor({ profile, friends, busy, mutate, onInvite
     <section className="panel flow profile-edit-panel">
       <button className="profile-picture" aria-label="Profilbild bearbeiten" disabled={busy} onClick={() => setPictureMenu(true)}><Avatar name={profile.name} picture={profile.picture} size={84} /><span className="picture-badge"><Icon kind="camera" size="s" /></span></button>
       <input ref={fileInput} type="file" accept="image/*" hidden aria-label="Profilbild wählen" onChange={event => { void choose(event.target.files?.[0]); event.target.value = ""; }} />
-      <form className="profile-edit-name" onSubmit={event => void save(event)}><label>Name<input name="name" autoComplete="nickname" value={name} maxLength={30} onChange={event => { setName(event.target.value); setSaved(false); }} /></label>
+      <form className="profile-edit-name" onSubmit={event => void save(event)}><label>Name<input name="name" autoComplete="nickname" value={name} maxLength={30} disabled={busy} onChange={event => { setName(event.target.value); setSaved(false); }} /></label>
         <button className="button primary" disabled={busy || saved || name.trim() === profile.name}>{saved ? "Gespeichert" : "Speichern"}</button></form>
     </section>
     <section className="panel flow"><div className="section-head"><h2>Freunde</h2><button className="icon-button" title="Freund einladen" aria-label="Freund einladen" disabled={busy} onClick={onInvite}><Icon kind="plus" /></button></div>

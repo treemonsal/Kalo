@@ -144,6 +144,8 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
+      // Native modals make the background inert for pointer input; shortcuts must follow that rule too.
+      if ([...document.querySelectorAll("dialog[open]")].some(element => element !== dialog.current)) return;
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey || !event.altKey)) { event.preventDefault(); undo(); return; }
