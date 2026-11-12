@@ -6,18 +6,18 @@ import { DeckTile } from "./profile-view";
 import { DailyHero, NextStepCard } from "./progress-ui";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
-import { dateFormat, plural } from "./types";
+import { dateFormat, plural, type Draft } from "./types";
 
 export type DueSet = { deck: Deck; side: Direction; count: number; oldest: number };
 export type Recent = { title: string; mode: string; detail: string; progress: number; onOpen: () => void };
 type Props = {
   workspace: Workspace; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
-  recent?: Recent; step: Step; drafts: number; onStep: (step: Step) => void; onGoal: () => void; onDrafts: () => void; onProfile: () => void;
+  recent?: Recent; step: Step; drafts: Draft[]; onStep: (step: Step) => void; onGoal: () => void; onDraft: (draft: Draft) => void; onProfile: () => void;
   unsaved?: { title: string; onOpen: () => void; onDiscard: () => void };
   onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onCreate: () => void;
 };
 
-export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDrafts, onProfile, unsaved, onReview, onOpenDeck, onCreate }: Props) {
+export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDraft, onProfile, unsaved, onReview, onOpenDeck, onCreate }: Props) {
   const exams = workspace.decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
     .filter(item => item.days !== null && item.days <= 30).sort((a, b) => a.days! - b.days!);
   const dueByDeck = new Map<string, number>();
@@ -36,10 +36,11 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       <div className="actions"><button className="button primary small" onClick={unsaved.onOpen}>Weiterbearbeiten</button><button className="button small" onClick={unsaved.onDiscard}>Verwerfen</button></div>
     </div>}
 
-    {drafts > 0 && <button className="continue-card" onClick={onDrafts}>
-      <span className="continue-copy"><span className="eyebrow">Von ChatGPT</span><strong>{drafts === 1 ? "1 Entwurf wartet" : drafts + " Entwürfe warten"}</strong><span className="muted">Prüfen und als Set speichern</span></span>
+    {/* Sets from ChatGPT open straight in the editor: check, then save or discard. */}
+    {drafts.map(draft => <button key={draft.id} className="continue-card" onClick={() => onDraft(draft)}>
+      <span className="continue-copy"><span className="eyebrow">Entwurf von ChatGPT</span><strong>{draft.title}</strong><span className="muted">{plural(draft.cards.length, "Karte", "Karten")} · prüfen und speichern</span></span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
-    </button>}
+    </button>)}
 
     {recent && <button className="continue-card" onClick={recent.onOpen}>
       <span className="continue-copy">

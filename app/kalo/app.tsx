@@ -76,6 +76,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [time, setTime] = useState(0);
   const [confirm, confirmDialog] = useConfirm();
   const [duelToken, setDuelToken] = useState("");
+  const [deckOrigin, setDeckOrigin] = useState<"home" | "profile">("home");
   const [celebrate, setCelebrate] = useState<{ streak: number } | null>(null);
   const dataRef = useRef<Data | null>(null);
   const pending = useRef(0);
@@ -330,6 +331,16 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     setNotice("Set gespeichert");
   }
 
+  async function discardDraft() {
+    if (!editor?.draftId || !await confirm({ title: "Entwurf verwerfen?", message: "«" + (editor.title || "Entwurf") + "» wird entfernt.", confirm: "Verwerfen", destructive: true })) return;
+    if (await mutate({ type: "discard", draftId: editor.draftId })) {
+      writeStored(editorKey, null);
+      setEditor(null);
+      navigate("home");
+      setNotice("Entwurf verworfen");
+    }
+  }
+
   async function removeDeck() {
     if (!editor?.deckId || !await confirm({
       title: "Set löschen?", message: "«" + editor.title + "» und sein Lernstand werden endgültig entfernt.", confirm: "Löschen", destructive: true,
@@ -415,7 +426,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openDeck(item: Deck) {
+  function openDeck(item: Deck, from: "home" | "profile" = "home") {
+    setDeckOrigin(from);
     setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck");
   }
 
@@ -530,7 +542,6 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const profileView = view === "profile" || view === "stats" || view === "settings";
   const homeView = !profileView && view !== "chat";
   const creating = view === "editor" || view === "import";
-  const draftCount = data?.drafts.length ?? 0;
 
   return (
     <div className="shell" data-view={view}>
@@ -559,26 +570,26 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
         {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
           recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined)}
-          drafts={draftCount} onDrafts={() => openChat()} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
+          drafts={data?.drafts ?? []} onDraft={draft => edit(undefined, draft)} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
           onOpenDeck={openDeck} onCreate={() => edit()} />}
 
         {workspace && view === "profile" && <ProfileView workspace={workspace} now={time} busy={busy} mutate={mutate}
           profile={data?.profile ?? { name: "Du", picture: null, custom: false }} partner={data?.partner} dueByDeck={dueByDeck}
-          onOpenDeck={openDeck} onCreate={() => edit()} onError={message => setProblem({ message })} />}
+          onOpenDeck={item => openDeck(item, "profile")} onCreate={() => edit()} onError={message => setProblem({ message })} />}
 
         {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => history.back()} />}
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
-          onHome={() => navigate("home")} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
+          onHome={() => navigate(deckOrigin)} backLabel={deckOrigin === "profile" ? "Profil" : "Home"} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
           onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume : undefined}
           onStar={(cardId, starred) => void mutate({ type: "star", deckId: deck.id, cardId, starred }, { queue: true })}
           shareToken={data?.published?.[deck.id]}
           onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
 
-        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")} onChat={() => openChat()}
+        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")} onChat={() => openChat()} onDiscard={() => void discardDraft()}
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
@@ -599,9 +610,9 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         {data && view === "duel" && duelToken && <DuelView key={duelToken} token={duelToken} mutate={mutate} onHome={() => navigate("home")}
           onShare={(token, title) => void share(location.origin + "/?duel=" + token, "Duell: " + title)} />}
 
-        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} drafts={data.drafts} busy={busy} confirm={confirm}
-          chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={deck ? returnToDeck : () => history.back()} onRefresh={() => void refresh(true)}
-          onImport={() => importText("new")} onReview={draft => edit(undefined, draft)} />}
+        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} busy={busy}
+          chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={deck ? returnToDeck : () => history.back()}
+          onImport={() => importText("new")} />}
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={busy} theme={theme} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}

@@ -7,10 +7,10 @@ import { row, type EditCard, type Editor } from "./types";
 type Props = {
   editor: Editor; busy: boolean; subjects: string[];
   onChange: (update: (editor: Editor) => Editor) => void;
-  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onImportNew: () => void; onChat: () => void; onDelete: () => void;
+  onSave: (event: FormEvent) => void; onBack: () => void; onImport: () => void; onImportNew: () => void; onChat: () => void; onDiscard: () => void; onDelete: () => void;
 };
 
-export default function EditorView({ editor, busy, subjects, onChange, onSave, onBack, onImport, onImportNew, onChat, onDelete }: Props) {
+export default function EditorView({ editor, busy, subjects, onChange, onSave, onBack, onImport, onImportNew, onChat, onDiscard, onDelete }: Props) {
   const fresh = !editor.deckId && !editor.draftId && editor.cards.every(card => !card.front.trim() && !card.back.trim());
   const update = (rowId: string, value: Partial<EditCard>) =>
     onChange(current => ({ ...current, cards: current.cards.map(c => c.row === rowId ? { ...c, ...value } : c) }));
@@ -61,6 +61,7 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
       <button className="button primary" disabled={busy}><Icon kind="check" /> Speichern</button>
       <button type="button" className="button" disabled={editor.cards.length >= 400} onClick={() => onChange(current => ({ ...current, cards: [...current.cards, row()] }))}><Icon kind="plus" /> Karte</button>
       {!fresh && <button type="button" className="button" aria-label="Text importieren" title="Text importieren" onClick={onImport}><Icon kind="import" /><span className="wide-only">Importieren</span></button>}
+      {editor.draftId && <button type="button" className="icon-button danger" aria-label="Entwurf verwerfen" title="Entwurf verwerfen" disabled={busy} onClick={onDiscard}><Icon kind="trash" /></button>}
       {editor.deckId && <button type="button" className="icon-button danger" aria-label="Set löschen" title="Set löschen" disabled={busy} onClick={onDelete}><Icon kind="trash" /></button>}
     </div>
   </form>;

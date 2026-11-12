@@ -6,7 +6,8 @@ import { examIn, streak } from "../../lib/progress";
 import type { PartnerSummary } from "../../lib/social";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
-import { makePicture } from "./picture";
+import { loadImage } from "./picture";
+import { PictureCrop } from "./picture-crop";
 import { Avatar, MasteryRing, PartnerCard } from "./progress-ui";
 import { plural, type Mutate } from "./types";
 
@@ -20,6 +21,7 @@ type Props = {
 export default function ProfileView({ workspace, now, busy, profile, partner, dueByDeck, mutate, onOpenDeck, onCreate, onError }: Props) {
   const [search, setSearch] = useState("");
   const [naming, setNaming] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<{ image: HTMLImageElement; url: string } | null>(null);
   const query = search.trim().toLocaleLowerCase("de-CH");
   const decks = workspace.decks.filter(item => !query ||
     [item.title, item.subject ?? "", ...item.cards.flatMap(card => [card.front, card.back])]
@@ -31,8 +33,13 @@ export default function ProfileView({ workspace, now, busy, profile, partner, du
 
   async function choose(file: File | undefined) {
     if (!file) return;
-    try { await mutate({ type: "profile", picture: await makePicture(file) }); }
+    try { setPhoto(await loadImage(file)); }
     catch (error) { onError(error instanceof Error ? error.message : "Dieses Bild geht nicht."); }
+  }
+
+  function closePhoto() {
+    if (photo) URL.revokeObjectURL(photo.url);
+    setPhoto(null);
   }
 
   async function saveName(event: React.FormEvent) {
@@ -63,6 +70,8 @@ export default function ProfileView({ workspace, now, busy, profile, partner, du
       {workspace.decks.length > 0 && <dl className="profile-stats">{stats.map(([label, value]) =>
         <div key={label}><dd>{value}</dd><dt>{label}</dt></div>)}</dl>}
     </section>
+
+    {photo && <PictureCrop image={photo.image} onCancel={closePhoto} onDone={picture => { closePhoto(); void mutate({ type: "profile", picture }); }} />}
 
     {partner && <PartnerCard partner={partner} />}
 

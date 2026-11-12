@@ -10,7 +10,7 @@ type Props = {
   workspace: Workspace; deck: Deck; time: number; busy: boolean;
   direction: Direction; filter: Filter; writing: boolean;
   onDirection: (value: Direction) => void; onFilter: (value: Filter) => void; onWriting: (value: boolean) => void;
-  onHome: () => void; onEdit: () => void; onCards: () => void; onStart: (mode: "learn" | "cram" | "review") => void;
+  onHome: () => void; backLabel: string; onEdit: () => void; onCards: () => void; onStart: (mode: "learn" | "cram" | "review") => void;
   onChat: () => void; onResume?: () => void; onStar: (cardId: string, starred: boolean) => void;
   shareToken?: string; onShare: () => void; onDuel: () => void;
 };
@@ -44,7 +44,7 @@ export default function DeckView(props: Props) {
 
   return <>
     <div className="view-bar">
-      <button className="text-button" aria-label="Zurück zur Bibliothek" onClick={props.onHome}><Icon kind="back" /> Bibliothek</button>
+      <button className="text-button" aria-label={"Zurück zu " + props.backLabel} onClick={props.onHome}><Icon kind="back" /> {props.backLabel}</button>
       <button className="text-button" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
     </div>
     <header className="page-head">

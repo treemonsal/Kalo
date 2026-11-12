@@ -724,6 +724,15 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .profile-stats dd { margin: 0; font-size: var(--fs-headline); font-weight: 760; font-variant-numeric: tabular-nums; }
 .profile-stats dt { color: var(--muted); font-size: var(--fs-footnote); }
 
+.crop-dialog .sheet-body { justify-items: center; text-align: center; }
+.crop-frame { position: relative; overflow: hidden; margin: var(--space-2) auto; border-radius: 50%; background: var(--soft); cursor: grab; touch-action: none; user-select: none; box-shadow: 0 0 0 1px var(--line-strong); }
+.crop-frame:active { cursor: grabbing; }
+.crop-frame:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.crop-frame img { position: absolute; top: 50%; left: 50%; max-width: none; pointer-events: none; }
+.crop-zoom { display: flex; align-items: center; gap: var(--space-2); width: 100%; max-width: 260px; color: var(--muted); }
+.crop-zoom input { flex: 1; }
+.steps { display: grid; gap: var(--space-1); margin: 0 0 var(--space-2); padding-left: 1.3em; color: var(--muted); }
+
 /* Statistics */
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); margin-bottom: var(--space-5); }
 @media (min-width: 720px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
@@ -828,12 +837,12 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 
 /* Focus views: learning, cards, editor and import hide the dock, the back arrow leads out. */
 .shell:is([data-view="study"], [data-view="cards"], [data-view="duel"]) .bottom-dock { display: none; }
-/* While creating, only the minus stays, at the right edge of the content, next to the save bar. */
+/* While creating, only the minus stays: at the right edge of the content, floating above the save bar. */
 .shell:is([data-view="editor"], [data-view="import"]) .bottom-dock { width: calc(min(100vw, 1040px) - 2 * max(var(--space-4), 4vw)); justify-content: flex-end; }
 .shell:is([data-view="editor"], [data-view="import"]) .bottom-dock nav { display: flex; width: auto; padding: 0; border: 0; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .shell:is([data-view="editor"], [data-view="import"]) .bottom-dock nav button:not(.nav-create) { display: none; }
 .shell:is([data-view="editor"], [data-view="import"]) .nav-create { width: 58px; height: 58px; box-shadow: var(--shadow-float); }
-.shell[data-view="editor"] .editor-actions { margin-right: 68px; }
+.shell[data-view="editor"] .bottom-dock { bottom: calc(max(var(--space-3), env(safe-area-inset-bottom)) + 76px); }
 .shell:is([data-view="study"], [data-view="cards"], [data-view="editor"], [data-view="import"], [data-view="duel"]) .main { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
 .shell:is([data-view="editor"]) .editor-actions { bottom: max(var(--space-3), env(safe-area-inset-bottom)); }
 .shell[data-view="settings"] .main { padding-bottom: calc(140px + env(safe-area-inset-bottom)); }
@@ -877,3 +886,4 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .due-sets { margin-top: var(--space-2); }
 .due-sets > summary { color: var(--muted); font-size: var(--fs-footnote); }
 .due-list li { flex-wrap: nowrap !important; }
+.crop-dialog .field-error { margin: 0; color: var(--danger); }
