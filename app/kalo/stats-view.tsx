@@ -19,7 +19,7 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
   const decks = workspace.decks.map(deck => ({
     deck, share: deck.cards.filter(card => secure(workspace, card.id, "front") || secure(workspace, card.id, "back")).length / Math.max(1, deck.cards.length),
   })).sort((a, b) => b.share - a.share);
-  const accuracy = summary.cards ? Math.round((summary.correct / summary.cards) * 100) : null;
+  const accuracy = summary.graded ? Math.round((summary.gradedCorrect / summary.graded) * 100) : null;
 
   return <>
     <div className="view-bar"><button className="text-button" onClick={onBack}><Icon kind="back" /> Profil</button></div>
@@ -35,14 +35,15 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
     <section className="panel flow" aria-labelledby="week-title">
       <div className="section-head"><h2 id="week-title">Diese Woche</h2>
         {summary.previousCards > 0 && <span className="muted">Vorwoche {summary.previousCards}</span>}</div>
-      <div className="week-bars" role="img" aria-label={"Karten pro Tag: " + summary.days.map(item => item.points).join(", ") + ". Ziel " + goal + "."}>
+      <div className="week-bars" role="img" aria-label={"Punkte von Montag bis Sonntag: " + summary.days.map(item => item.points).join(", ") + ". Tagesziel " + goal + " Punkte."}>
         <span className="goal-mark" style={{ bottom: "calc(22px + (100% - 22px) * " + goal / top + ")" }} aria-hidden="true" />
         {summary.days.map(item => <span key={item.key} className="week-bar" data-reached={item.reached} data-today={item.key === dayOf(now)}>
-          <i style={{ height: Math.max(2, (item.points / top) * 100) + "%" }} />
+          <i style={{ height: Math.max(2, (item.points / top) * 100) + "%" }} title={item.cards + " Karten bearbeitet · " + item.points + " Punkte"} />
           <small>{weekday.format(Date.parse(item.key + "T12:00:00Z"))}</small>
         </span>)}
       </div>
-      <p className="muted">Gestrichelt: dein Tagesziel von {goal} Karten. {summary.minutes > 0 ? "Lernzeit " + duration(summary.minutes) + "." : ""}</p>
+      <p className="muted">Montag bis Sonntag · Ziel: {goal} Punkte pro Tag{summary.minutes > 0 ? " · " + duration(summary.minutes) : ""}</p>
+      <details className="advanced"><summary>Wie wird gezählt?</summary><p className="muted">Jede Bewertung zählt einen Punkt, richtige Goldkarten zwei. Die Trefferquote berücksichtigt Fragen und bewertete Wiederholungen. Wischbewertungen und ältere Bewertungen ohne getrennte Trefferquote zählen dabei nicht mit.</p></details>
     </section>
 
     <SubjectLevels workspace={workspace} />
@@ -51,6 +52,6 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
       <ul className="mastery-list">{decks.map(({ deck, share }) => <li key={deck.id}><MasteryRing share={share} /><span>{deck.title}</span></li>)}</ul>
     </section>}
 
-    <p className="quiet-line">Seit Beginn {total.cards} Karten{total.minutes ? " in " + duration(total.minutes) : ""}</p>
+    <p className="quiet-line">Im gespeicherten Verlauf: {total.cards} Karten bearbeitet{total.minutes ? " in " + duration(total.minutes) : ""}</p>
   </>;
 }

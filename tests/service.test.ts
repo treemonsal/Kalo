@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { type Workspace } from "../lib/learning.ts";
+import { deckDigest, type Workspace } from "../lib/learning.ts";
 import { AccountStore, api, mcp } from "../lib/service.ts";
 import { reminderFor, runReminders, vapidAuthorization } from "../lib/push.ts";
 
@@ -223,4 +223,46 @@ test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werd
   const after = await data<Profiled>(api(request("bob"), store, now));
   assert.equal(after.partner?.picture, undefined, "entferntes Bild ist weg");
   assert.equal((await data<Profiled>(api(request("alice"), store, now))).profile.name, "alice", "leerer Name nimmt wieder den Anmeldenamen");
+});
+
+test("Erneute Zustellung nach verlorener Antwort zählt eine Wischbewertung genau einmal", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
+  const deck = saved.workspace.decks[0];
+  const payload = { requestId: crypto.randomUUID(), clientId: crypto.randomUUID(), sequence: 1, at: now, action: { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true, sortId: crypto.randomUUID() } };
+  const first = await data<ApiReply>(api(request("alice", payload), store, now));
+  const again = await data<ApiReply>(api(request("alice", payload), store, now + 60_000));
+  assert.equal(again.revision, first.revision);
+  assert.deepEqual(again.workspace.reviews, first.workspace.reviews);
+  assert.deepEqual(again.workspace.stats, first.workspace.stats);
+  const bob = await api(request("bob", payload), store, now);
+  assert.notEqual(bob.status, 200, "eine fremde Identität hat auch mit gleicher Anfrage ID keinen Zugriff");
+});
+
+test("Eine alte lokale Bewertung darf keine inzwischen bearbeitete Karte als gelernt markieren", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
+  const deck = saved.workspace.decks[0]; const card = deck.cards[0];
+  const content = deckDigest({ title: "", cards: [card] });
+  await api(request("alice", { action: { ...save, deckId: deck.id, cards: [{ ...card, back: "Neue Antwort" }] } }), store, now + 1000);
+  const response = await api(request("alice", { requestId: crypto.randomUUID(), clientId: crypto.randomUUID(), sequence: 1, at: now, content,
+    action: { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: true, sortId: crypto.randomUUID() } }), store, now + 2000);
+  assert.equal(response.status, 409);
+  assert.deepEqual((await store.read("alice")).workspace.reviews, {});
+});
+
+test("Auch nach tausenden weiteren Änderungen wird eine alte Anfrage nicht noch einmal angewendet", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
+  const deck = saved.workspace.decks[0];
+  const clientId = crypto.randomUUID();
+  const action = { type: "star", deckId: deck.id, cardId: deck.cards[0].id, starred: true };
+  const original = { requestId: crypto.randomUUID(), clientId, sequence: 1, action };
+  await api(request("alice", original), store, now);
+  for (let sequence = 2; sequence <= 2050; sequence++) await api(request("alice", { requestId: crypto.randomUUID(), clientId, sequence, action: { ...action, starred: false } }), store, now);
+  const before = await store.read("alice");
+  assert.equal((await api(request("alice", original), store, now)).status, 200);
+  const after = await store.read("alice");
+  assert.equal(after.workspace.decks[0].cards[0].starred, false);
+  assert.equal(after.revision, before.revision);
 });

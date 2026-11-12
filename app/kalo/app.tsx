@@ -22,6 +22,7 @@ import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
 import { applyAppearance, syncThemeColor } from "./theme";
+import { DurableQueue, isDurableAction, type SyncState } from "../../lib/learning-sync";
 import { freshEditor, row, type PassSnapshot, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult, type View } from "./types";
 
 const DEFAULT_CHAT = "https://chatgpt.com/";
@@ -78,6 +79,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [duelToken, setDuelToken] = useState("");
   const [deckOrigin, setDeckOrigin] = useState<"home" | "profile">("home");
   const [celebrate, setCelebrate] = useState<{ streak: number } | null>(null);
+  const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
+  const outbox = useRef<DurableQueue<MutateResult> | null>(null);
   const dataRef = useRef<Data | null>(null);
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
@@ -112,6 +115,46 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       setCelebrate({ streak: streak(value.workspace, Date.now()).days });
     }
   }, [accountId]);
+
+  useEffect(() => {
+    const queue = new DurableQueue<MutateResult>({
+      owner: accountId,
+      storage: { getItem: key => { try { return localStorage.getItem(key); } catch { return null; } }, setItem: (key, value) => localStorage.setItem(key, value) },
+      lock: work => navigator.locks ? navigator.locks.request("kalo-outbox:" + accountId, work) : Promise.resolve(work()),
+      read: async () => {
+        const response = await fetch("/api/workspace", { cache: "no-store", signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) throw new Error("Laden ging nicht");
+        return await response.json() as MutateResult;
+      },
+      send: async item => {
+        const response = await fetch("/api/workspace", {
+          method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ requestId: item.id, clientId: item.clientId, sequence: item.sequence, at: item.at, action: item.action, content: item.content }),
+        });
+        const result = await response.json() as MutateResult;
+        if (response.ok && !result.workspace) throw new Error("Unvollständige Antwort");
+        return { status: response.status, result };
+      },
+      accept: next => { accept(next); setTime(Date.now()); }, changed: setSync,
+    });
+    outbox.current = queue;
+    queueMicrotask(() => { setSync(queue.state); void queue.retry(); });
+    const retry = () => { if (!document.hidden) void queue.retry(); };
+    window.addEventListener("online", retry);
+    window.addEventListener("focus", retry);
+    window.addEventListener("storage", retry);
+    document.addEventListener("visibilitychange", retry);
+    const timer = window.setInterval(retry, POLL_MS);
+    return () => {
+      queue.dispose();
+      outbox.current = null;
+      window.removeEventListener("online", retry);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("storage", retry);
+      document.removeEventListener("visibilitychange", retry);
+      window.clearInterval(timer);
+    };
+  }, [accountId, accept]);
 
   const refresh = useCallback(async (force = false) => {
     const started = Date.now();
@@ -168,10 +211,27 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
   // Queued actions (swipes, undo, stars) run strictly in order. Others are dropped while something runs.
   const mutate: Mutate = async (action, options = {}) => {
-    if (!dataRef.current || (pending.current && !options.queue)) return null;
+    if (!dataRef.current || ((pending.current || outbox.current?.state.pending) && !options.queue)) return null;
     pending.current += 1;
     setBusy(true);
     if (!options.silent) setProblem(null);
+    if (isDurableAction(action)) {
+      try {
+        if (options.skip?.()) { options.onDone?.(true, 200); return dataRef.current as MutateResult; }
+        if (!outbox.current) throw new Error("Dein Lernstand wird noch geladen.");
+        const card = action.type === "sortCard" ? dataRef.current.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId) : undefined;
+        const result = await outbox.current.submit(action, undefined, card ? deckDigest({ title: "", cards: [card] }) : undefined);
+        options.onDone?.(Boolean(result), result ? 200 : 409);
+        return result;
+      } catch (error) {
+        options.onDone?.(false, 400);
+        setProblem({ message: error instanceof Error ? error.message : "Die Bewertung konnte nicht gesichert werden." });
+        return null;
+      } finally {
+        pending.current -= 1;
+        if (!pending.current) setBusy(false);
+      }
+    }
     const run = async (): Promise<MutateResult | null> => {
       let status = 0;
       try {
@@ -413,15 +473,11 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate("cards");
   }
 
-  const progressTimer = useRef(0);
-  const saveProgress = useCallback((target: Deck, side: Direction, selection: Filter, snapshot: PassSnapshot, immediate?: boolean) => {
-    window.clearTimeout(progressTimer.current);
-    const send = () => void mutate({
+  const saveProgress = useCallback((target: Deck, side: Direction, selection: Filter, snapshot: PassSnapshot) => {
+    void mutate({
       type: "cardPass", deckId: target.id, direction: side, filter: selection, order: snapshot.order, index: snapshot.index,
       known: Object.keys(snapshot.pass).filter(id => snapshot.pass[id]), later: Object.keys(snapshot.pass).filter(id => !snapshot.pass[id]), done: snapshot.done,
     }, { queue: true, silent: true });
-    // Quick taps are bundled into one save; leaving the card mode saves at once.
-    if (immediate) send(); else progressTimer.current = window.setTimeout(send, 700);
   // mutate reads only refs, so a stable callback is safe.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -542,24 +598,39 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const profileView = view === "profile" || view === "stats" || view === "settings";
   const homeView = !profileView && view !== "chat";
   const creating = view === "editor" || view === "import";
+  const writingBusy = busy || sync.pending > 0;
+
+  async function discardPending() {
+    if (!await confirm({ title: "Lokale Änderungen verwerfen?", message: (sync.error ?? "Diese Änderungen konnten nicht abgeglichen werden.") + " " + sync.pending + " noch nicht bestätigte Aktionen werden von diesem Gerät entfernt. Bereits auf dem Server gespeicherte Bewertungen bleiben erhalten.", confirm: "Verwerfen", destructive: true })) return;
+    try { await outbox.current?.discard(); navigate("home"); window.setTimeout(() => void refresh(true), 0); }
+    catch { setProblem({ message: "Dein Browser blockiert den lokalen Speicher." }); }
+  }
 
   return (
     <div className="shell" data-view={view}>
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
       <header className="topbar">
         <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">
-          {/* A tiny static SVG mark, image optimisation would add nothing. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/kalo-mark.svg" alt="" width={30} height={30} /> Kalo
+          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="white" opacity=".3" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg> Kalo
         </button>
+        <div className="topbar-right">
+          {data && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
+            {sync.pending || busy ? <button className="text-button" onClick={() => void outbox.current?.retry(true)} title={sync.error ?? (sync.pending ? "Auf diesem Gerät gesichert. Wird automatisch übertragen, sobald die Verbindung steht." : "Wird auf dem Server gespeichert.")}>
+              <Icon kind={sync.phase === "waiting" || sync.phase === "blocked" ? "cloudOff" : "repeat"} size="s" /><span>{sync.phase === "waiting" || sync.phase === "blocked" ? "Lokal gesichert" : "Wird gespeichert"}</span><span className="sr-only">{sync.pending} Aktionen ausstehend</span>
+            </button> : <span title="Alle Änderungen gespeichert" aria-label="Alle Änderungen gespeichert"><Icon kind="check" size="s" /></span>}
+          </span>}
         {/* Statistics and settings belong to the profile, like in MyStyle. */}
         {view === "profile" && <div className="topbar-actions">
           <button className="icon-button" aria-label="Statistik" title="Statistik" onClick={() => navigate("stats")}><Icon kind="pie" /></button>
           <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" onClick={() => navigate("settings")}><Icon kind="menu" /></button>
         </div>}
+        </div>
       </header>
-      <main ref={main} className="main" id="inhalt" tabIndex={-1} aria-busy={busy}>
+      <main ref={main} className="main" id="inhalt" tabIndex={-1} aria-busy={writingBusy}>
         {data && problem && <ErrorBanner problem={problem} onDismiss={() => setProblem(null)} />}
+        {sync.phase === "blocked" && <div className="banner" role="alert"><p>{sync.error ?? "Deine Anmeldung ist abgelaufen. Die Bewertungen bleiben auf diesem Gerät gesichert."}</p><div className="banner-actions">
+          {sync.status === 401 ? <a className="button small" href="/signin-with-chatgpt?return_to=%2F">Neu anmelden</a> : <><button className="button small" onClick={() => void outbox.current?.retry(true)}>Erneut versuchen</button><button className="text-button" onClick={() => void discardPending()}>Verwerfen</button></>}
+        </div></div>}
         <Toast message={notice} />
         {!data && (problem
           ? <EmptyState icon="cloudOff" title="Keine Verbindung" text={problem.message}>
@@ -568,20 +639,20 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
             </EmptyState>
           : <LibrarySkeleton />)}
 
-        {workspace && view === "home" && <HomeView workspace={workspace} busy={busy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
+        {workspace && view === "home" && <HomeView workspace={workspace} busy={writingBusy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
           recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined)}
           drafts={data?.drafts ?? []} onDraft={draft => edit(undefined, draft)} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
           onOpenDeck={openDeck} onCreate={() => edit()} />}
 
-        {workspace && view === "profile" && <ProfileView workspace={workspace} now={time} busy={busy} mutate={mutate}
+        {workspace && view === "profile" && <ProfileView workspace={workspace} now={time} busy={writingBusy} mutate={mutate}
           profile={data?.profile ?? { name: "Du", picture: null, custom: false }} partner={data?.partner} dueByDeck={dueByDeck}
           onOpenDeck={item => openDeck(item, "profile")} onCreate={() => edit()} onError={message => setProblem({ message })} />}
 
         {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => history.back()} />}
 
-        {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={busy}
+        {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={writingBusy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
           onHome={() => navigate(deckOrigin)} backLabel={deckOrigin === "profile" ? "Profil" : "Home"} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
           onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume : undefined}
@@ -589,7 +660,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           shareToken={data?.published?.[deck.id]}
           onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
 
-        {data && view === "editor" && editor && <EditorView editor={editor} busy={busy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")} onChat={() => openChat()} onDiscard={() => void discardDraft()}
+        {data && view === "editor" && editor && <EditorView editor={editor} busy={writingBusy} subjects={[...new Set(workspace?.decks.map(item => item.subject).filter((item): item is string => Boolean(item)))]} onChange={changeEditor} onSave={save} onImportNew={() => importText("new")} onChat={() => openChat()} onDiscard={() => void discardDraft()}
           onBack={returnToDeck} onImport={() => importText("append")} onDelete={() => void removeDeck()} />}
 
         {data && view === "import" && <ImportView room={importTarget === "append" && editor ? MAX_CARDS - editor.cards.filter(c => c.front.trim() || c.back.trim()).length : MAX_CARDS}
@@ -601,20 +672,20 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
           onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => openChat(deck, cardId)}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
-          onProgress={(snapshot, immediate) => saveProgress(deck, direction, cardsStart.filter, snapshot, immediate)} />}
+          onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} />}
 
-        {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={busy} mutate={mutate}
+        {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate}
           onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
           now={time} onStep={runStep} onHome={() => navigate("home")} />}
 
         {data && view === "duel" && duelToken && <DuelView key={duelToken} token={duelToken} mutate={mutate} onHome={() => navigate("home")}
           onShare={(token, title) => void share(location.origin + "/?duel=" + token, "Duell: " + title)} />}
 
-        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} busy={busy}
+        {data && view === "chat" && <ChatView key={deckId + ":" + chatCard} deck={deck} presetCard={chatCard} busy={writingBusy}
           chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={deck ? returnToDeck : () => history.back()}
           onImport={() => importText("new")} />}
 
-        {workspace && view === "settings" && <SettingsView workspace={workspace} busy={busy} theme={theme} chatLink={chatLink}
+        {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
           pushKey={data?.pushKey} push={data?.push} partner={data?.partner} onInvite={() => void invitePartner()} onLeave={() => void leavePartner()} onBack={() => navigate("profile")}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
@@ -634,14 +705,14 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       <div className="bottom-dock">
         <nav aria-label="Hauptmenü">
           <button aria-current={homeView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="home" filled={homeView} /><span>Home</span></button>
+          <button aria-current={profileView ? "page" : undefined} aria-label="Profil" onClick={() => navigate("profile")}>
+            {data?.profile?.picture ? <Avatar name={data.profile.name} picture={data.profile.picture} size={26} /> : <Icon kind="person" filled={profileView} />}<span>Profil</span></button>
+        </nav>
           <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
             onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
             {/* Plus turns into minus while an editor is open: the vertical stroke folds away. */}
             <svg className="icon-svg plus-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /><path className="pm-vertical" d="M12 5v14" /></svg>
           </button>
-          <button aria-current={profileView ? "page" : undefined} aria-label="Profil" onClick={() => navigate("profile")}>
-            {data?.profile?.picture ? <Avatar name={data.profile.name} picture={data.profile.picture} size={26} /> : <Icon kind="person" filled={profileView} />}<span>Profil</span></button>
-        </nav>
       </div>
       {confirmDialog}
       {celebrate && <div className="goal-celebration" role="status">

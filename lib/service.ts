@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { ConflictError, actionShape, apply, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
+import { ConflictError, actionShape, apply, deckDigest, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
 import type { PushSettings } from "./push.ts";
 import { notice, partnerSummary, publicDuel, runSocial, socialShape, type Duel, type Share } from "./social.ts";
+import { isDurableAction } from "./learning-sync.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
 type Selection = { token: string; deckId: string; title: string; cards: Card[]; expires: number };
@@ -10,6 +11,7 @@ export type Account = {
   partner?: { id: string; name: string }; published?: Record<string, string>; push?: PushSettings;
   /** Own name and picture. Without a name, the sign-in name is used. */
   profile?: Profile;
+  syncClients?: Record<string, number>;
 };
 export type Profile = { name?: string; picture?: string };
 
@@ -88,6 +90,9 @@ const profile = z.object({ type: z.literal("profile"), name: z.string().trim().m
 // Actions are commands, so the server applies them to the newest state. The revision is only informational.
 const mutation = z.object({
   revision: z.number().int().nonnegative().optional(), action: z.union([actionShape, share, discard, revoke, profile]),
+  requestId: key.optional(), at: z.number().finite().nonnegative().optional(),
+  clientId: key.optional(), sequence: z.number().int().positive().safe().optional(),
+  content: z.string().max(20).optional(),
 });
 const WRITE_ATTEMPTS = 3;
 class InputError extends Error {}
@@ -228,19 +233,40 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     }
     const parsed = mutation.safeParse(input);
     if (!parsed.success) return json({ error: "Prüfe die Felder. Pro Karte sind 1500 Zeichen je Seite erlaubt." }, 400);
-    const { action } = parsed.data;
+    const { action, requestId, at, content, clientId, sequence } = parsed.data;
+    if (requestId && (!clientId || !sequence) || !requestId && (clientId || sequence)) return json({ error: "Die lokale Anfrage ist unvollständig." }, 400);
+    if (requestId && !isDurableAction(action)) return json({ error: "Diese Aktion kann nicht nachträglich übertragen werden." }, 400);
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
       const account = await store.read(owner);
+      if (clientId && sequence) {
+        const confirmed = account.syncClients?.[clientId] ?? 0;
+        if (sequence <= confirmed) return json(visible(account, req));
+        if (sequence !== confirmed + 1) return json({ ...visible(account, req), error: "Eine frühere Bewertung wird noch übertragen.", retryable: true }, 409);
+      }
+      if (requestId && content && action.type === "sortCard") {
+        const card = account.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId);
+        if (!card || deckDigest({ title: "", cards: [card] }) !== content) return json({ ...visible(account, req), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
+      }
       let token: string | undefined;
-      try { token = change(account, action, now); }
+      const actionTime = requestId && at !== undefined ? Math.min(at, now) : now;
+      if (requestId && (action.type === "sortCard" || action.type === "rate" || action.type === "cardPass")) {
+        const review = action.type === "sortCard" ? account.workspace.reviews[action.cardId + ":" + action.direction]
+          : action.type === "rate" ? account.workspace.reviews[(account.workspace.session?.queue[action.cursor] ?? "") + ":" + account.workspace.session?.direction] : undefined;
+        const pass = action.type === "cardPass" ? account.workspace.passes?.[action.deckId + ":" + action.direction] : undefined;
+        if (review?.lastReview && Date.parse(review.lastReview) > actionTime || pass && pass.updated > actionTime) {
+          return json({ ...visible(account, req), error: "Diese Karten wurden inzwischen auf einem anderen Gerät weiter gelernt. Prüfe die lokalen Bewertungen." }, 409);
+        }
+      }
+      try { token = change(account, action, actionTime); }
       catch (error) {
         if (!(error instanceof Rejection)) throw error;
         // The current state goes along, so the client shows what actually happened.
         return json({ ...visible(account, req), error: error.message }, error.status);
       }
+      if (clientId && sequence) account.syncClients = { ...account.syncClients, [clientId]: sequence };
       if (await store.write(owner, account)) return json({ ...visible(account, req), revision: account.revision + 1, token });
     }
-    return json({ ...visible(await store.read(owner), req), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut." }, 409);
+    return json({ ...visible(await store.read(owner), req), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut.", retryable: true }, 409);
   } catch (error) {
     if (error instanceof InputError) return json({ error: error.message }, 400);
     console.error("Kalo workspace write failed");

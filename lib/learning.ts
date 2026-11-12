@@ -47,6 +47,7 @@ const reviewShape = z.object({
 const dayShape = z.object({
   cards: z.number().int().nonnegative(), points: z.number().int().nonnegative(), correct: z.number().int().nonnegative(),
   secured: z.number().int().nonnegative(), ms: z.number().nonnegative(),
+  graded: z.number().int().nonnegative().optional(), gradedCorrect: z.number().int().nonnegative().optional(),
 });
 export type Day = z.infer<typeof dayShape>;
 
@@ -118,9 +119,13 @@ function track(state: Workspace, now: number, change: { points?: number; correct
   day.cards = Math.max(0, day.cards + (change.cards ?? 1));
   day.points = Math.max(0, day.points + (change.points ?? 1));
   if (change.correct) day.correct += 1;
+  if (change.correct !== undefined) {
+    day.graded = (day.graded ?? 0) + 1;
+    day.gradedCorrect = (day.gradedCorrect ?? 0) + Number(change.correct);
+  }
   if (change.secured) day.secured += 1;
   if (stats.lastAt && now > stats.lastAt && now - stats.lastAt < ACTIVE_GAP) day.ms += now - stats.lastAt;
-  stats.lastAt = now;
+  stats.lastAt = Math.max(stats.lastAt ?? 0, now);
   // Keep about half a year of history.
   const keys = Object.keys(stats.days).sort();
   for (const old of keys.slice(0, Math.max(0, keys.length - 190))) delete stats.days[old];

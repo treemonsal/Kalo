@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { secure, type Deck, type Workspace } from "../../lib/learning";
 import { examIn, streak } from "../../lib/progress";
 import type { PartnerSummary } from "../../lib/social";
@@ -8,6 +8,7 @@ import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
 import { loadImage } from "./picture";
 import { PictureCrop } from "./picture-crop";
+import { PictureMenu } from "./picture-menu";
 import { Avatar, MasteryRing, PartnerCard } from "./progress-ui";
 import { plural, type Mutate } from "./types";
 
@@ -21,7 +22,10 @@ type Props = {
 export default function ProfileView({ workspace, now, busy, profile, partner, dueByDeck, mutate, onOpenDeck, onCreate, onError }: Props) {
   const [search, setSearch] = useState("");
   const [naming, setNaming] = useState<string | null>(null);
-  const [photo, setPhoto] = useState<{ image: HTMLImageElement; url: string } | null>(null);
+  const [pictureMenu, setPictureMenu] = useState(false);
+  const [pictureDraft, setPictureDraft] = useState<{ image: HTMLImageElement; url: string } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => () => { if (pictureDraft) URL.revokeObjectURL(pictureDraft.url); }, [pictureDraft]);
   const query = search.trim().toLocaleLowerCase("de-CH");
   const decks = workspace.decks.filter(item => !query ||
     [item.title, item.subject ?? "", ...item.cards.flatMap(card => [card.front, card.back])]
@@ -31,15 +35,17 @@ export default function ProfileView({ workspace, now, busy, profile, partner, du
   const days = streak(workspace, now).days;
   const stats = ([["Sets", workspace.decks.length], ["Karten", cards], ["Sitzen", sitting], ["Serie", days]] as const);
 
-  async function choose(file: File | undefined) {
+  async function choose(file: Blob | undefined) {
     if (!file) return;
-    try { setPhoto(await loadImage(file)); }
+    if (file.size > 30_000_000) { onError("Wähle ein Foto unter 30 MB."); return; }
+    setPictureMenu(false);
+    try { setPictureDraft(await loadImage(file)); }
     catch (error) { onError(error instanceof Error ? error.message : "Dieses Bild geht nicht."); }
   }
 
-  function closePhoto() {
-    if (photo) URL.revokeObjectURL(photo.url);
-    setPhoto(null);
+  async function cropExisting() {
+    try { if (profile.picture) await choose(await (await fetch(profile.picture)).blob()); }
+    catch { onError("Dieses Bild lässt sich nicht öffnen."); }
   }
 
   async function saveName(event: React.FormEvent) {
@@ -50,12 +56,12 @@ export default function ProfileView({ workspace, now, busy, profile, partner, du
 
   return <>
     <section className="profile-head" aria-label="Profil">
-      <label className="profile-picture" title="Profilbild ändern">
+      <button className="profile-picture" title="Profilbild bearbeiten" aria-label="Profilbild bearbeiten" disabled={busy} onClick={() => setPictureMenu(true)}>
         <Avatar name={profile.name} picture={profile.picture} size={84} />
         <span className="picture-badge" aria-hidden="true"><Icon kind="camera" size="s" /></span>
-        <input type="file" accept="image/*" className="sr-only" disabled={busy} aria-label="Profilbild wählen"
-          onChange={event => { void choose(event.target.files?.[0]); event.target.value = ""; }} />
-      </label>
+      </button>
+      <input ref={fileInput} type="file" accept="image/*" hidden aria-label="Profilbild wählen"
+        onChange={event => { void choose(event.target.files?.[0]); event.target.value = ""; }} />
       {naming === null
         ? <div className="profile-name"><h1>{profile.name}</h1>
           <button className="icon-button" aria-label="Namen ändern" title="Namen ändern" onClick={() => setNaming(profile.custom ? profile.name : "")}><Icon kind="edit" /></button></div>
@@ -64,14 +70,21 @@ export default function ProfileView({ workspace, now, busy, profile, partner, du
           <input id="profile-name" autoFocus maxLength={30} value={naming} placeholder={profile.name} onChange={event => setNaming(event.target.value)} />
           <button className="button primary small" disabled={busy}>Speichern</button>
           <button type="button" className="button small" onClick={() => setNaming(null)}>Abbrechen</button>
-          {profile.picture && <button type="button" className="text-button" disabled={busy} onClick={() => void mutate({ type: "profile", picture: null })}>Bild entfernen</button>}
         </form>}
       {/* Numbers only once they say something: no row of zeros. */}
       {workspace.decks.length > 0 && <dl className="profile-stats">{stats.map(([label, value]) =>
         <div key={label}><dd>{value}</dd><dt>{label}</dt></div>)}</dl>}
     </section>
 
-    {photo && <PictureCrop image={photo.image} onCancel={closePhoto} onDone={picture => { closePhoto(); void mutate({ type: "profile", picture }); }} />}
+    {pictureMenu && <PictureMenu hasPicture={Boolean(profile.picture)} busy={busy} onClose={() => setPictureMenu(false)}
+      onChoose={() => fileInput.current?.click()} onCrop={() => void cropExisting()}
+      onRemove={() => void mutate({ type: "profile", picture: null }).then(result => { if (result) setPictureMenu(false); })} />}
+    {pictureDraft && <PictureCrop key={pictureDraft.url} image={pictureDraft.image} onCancel={() => setPictureDraft(null)}
+      onDone={async picture => {
+        const result = await mutate({ type: "profile", picture });
+        if (!result) throw new Error("Speichern ging nicht. Prüfe die Verbindung und versuche es nochmals.");
+        setPictureDraft(null);
+      }} />}
 
     {partner && <PartnerCard partner={partner} />}
 

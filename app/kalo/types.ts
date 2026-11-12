@@ -14,7 +14,7 @@ export type Extra = { type: "share"; deckId: string; cardIds: string[] } | { typ
   | { type: "profile"; name?: string; picture?: string | null } | SocialAction;
 export type View = "home" | "deck" | "editor" | "import" | "cards" | "study" | "chat" | "settings" | "duel" | "profile" | "stats";
 export type DuelData = { title: string; ownerName: string; questions: { prompt: string; options: string[]; answer: string }[]; results: { name: string; correct: number; ms: number }[]; played?: boolean };
-export type MutateResult = Data & { error?: string; token?: string; deckId?: string; imports?: number; duel?: DuelData };
+export type MutateResult = Data & { error?: string; retryable?: boolean; token?: string; deckId?: string; imports?: number; duel?: DuelData };
 export type MutateOptions = {
   /** Wait for earlier actions instead of being dropped while one runs (card swipes, undo, stars). */
   queue?: boolean;

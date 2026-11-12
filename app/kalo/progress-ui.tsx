@@ -2,11 +2,10 @@
 
 import type { CSSProperties } from "react";
 import { dayOf, type Workspace } from "../../lib/learning";
-import { dayStats, goalOf, levels, streak, week, type Step } from "../../lib/progress";
+import { dayStats, goalOf, levels, streak, type Step } from "../../lib/progress";
 import type { PartnerSummary } from "../../lib/social";
 import { Icon } from "./icons";
 
-const weekday = new Intl.DateTimeFormat("de-CH", { weekday: "narrow", timeZone: "Europe/Zurich" });
 
 /** A ring that fills with today's cards. Gold cards count twice. */
 export function GoalRing({ points, goal, size = 64 }: { points: number; goal: number; size?: number }) {
@@ -14,7 +13,7 @@ export function GoalRing({ points, goal, size = 64 }: { points: number; goal: nu
   const radius = 26;
   const length = 2 * Math.PI * radius;
   return <span className="goal-ring" data-done={progress >= 1} style={{ width: size, height: size }}
-    role="img" aria-label={"Tagesziel: " + Math.min(points, goal) + " von " + goal + " Karten"}>
+    role="img" aria-label={"Tagesziel: " + Math.min(points, goal) + " von " + goal + " Punkte"}>
     <svg viewBox="0 0 64 64" aria-hidden="true">
       <circle cx="32" cy="32" r={radius} className="ring-track" />
       <circle cx="32" cy="32" r={radius} className="ring-fill" strokeDasharray={length} strokeDashoffset={length * (1 - progress)} />
@@ -33,39 +32,21 @@ export function MasteryRing({ share }: { share: number }) {
   </span>;
 }
 
-/** Today's goal, the streak and the last seven days at a glance. */
+/** A compact daily goal; detailed measurements belong to Statistics. */
 export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; now: number; onGoal: () => void }) {
   const goal = goalOf(workspace);
   const today = dayStats(workspace, dayOf(now));
   const current = streak(workspace, now);
-  const summary = week(workspace, now);
   const left = Math.max(0, goal - today.points);
-  return <section className="hero" aria-label="Heute">
+  return <section className="hero compact" aria-label="Heute">
     <button className="hero-goal" onClick={onGoal} aria-label="Tagesziel ändern">
-      <GoalRing points={today.points} goal={goal} />
-      <span className="hero-copy">
-        <strong>{left ? left + " übrig" : "Geschafft"}</strong>
-        <span>Tagesziel</span>
-      </span>
+      <GoalRing points={today.points} goal={goal} size={48} />
+      <span className="hero-copy"><strong>{left ? left + " Punkte übrig" : "Tagesziel erreicht"}</strong><span>{today.points} von {goal} Punkten</span></span>
     </button>
-    <div className="hero-streak" data-risk={current.atRisk} data-active={current.days > 0}>
+    <div className="hero-streak" data-active={current.days > 0}>
       <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span>
-      <span className="hero-copy"><strong>{current.days}</strong>
-        <span>{current.atRisk ? "Serie halten" : current.days === 1 ? "Tag Serie" : "Tage Serie"}</span></span>
+      <span className="hero-copy"><strong>{current.days}</strong><span>{current.days === 1 ? "Tag Serie" : "Tage Serie"}</span></span>
     </div>
-    <div className="week-strip" aria-label={"Diese Woche: " + summary.cards + " Karten, " + summary.secured + " neu sicher, " + summary.minutes + " Minuten"}>
-      {summary.days.map(item => <span key={item.key} className="week-day" data-reached={item.reached} data-today={item.key === dayOf(now)}
-        data-rest={current.restDays.includes(item.key)} title={item.points + " Karten"}>
-        <i style={{ "--fill": Math.min(100, (item.points / Math.max(1, goal)) * 100) + "%" } as CSSProperties} />
-        <small>{weekday.format(Date.parse(item.key + "T12:00:00Z"))}</small>
-      </span>)}
-    </div>
-    <p className="week-line" aria-hidden="true">
-      <span title="Karten diese Woche"><Icon kind="cards" size="s" /> {summary.cards}</span>
-      <span title="Neu sicher diese Woche"><Icon kind="sparkle" size="s" /> {summary.secured}</span>
-      {summary.minutes > 0 && <span title="Lernzeit diese Woche"><Icon kind="clock" size="s" /> {summary.minutes < 60 ? summary.minutes + " min" : Math.floor(summary.minutes / 60) + " h " + (summary.minutes % 60)}</span>}
-      {summary.previousCards > 0 && summary.cards > summary.previousCards && <span className="rating-known" title="Mehr als letzte Woche"><Icon kind="up" size="s" /></span>}
-    </p>
   </section>;
 }
 
