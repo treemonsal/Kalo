@@ -40,7 +40,7 @@ const paths = {
   sparkle: "M12 3.5 13.8 10l6.7 2-6.7 2L12 20.5 10.2 14l-6.7-2 6.7-2L12 3.5Z",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v4.5l3 2",
   eye: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Zm9.5 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
-  person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7.5 8a7.5 7.5 0 0 1 15 0",
+  person: "M12 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM4.5 20v-1a7.5 6 0 0 1 15 0v1h-15Z",
   home: "M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1v-8.5Z",
   pie: "M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12V3.5Zm3 0v5.5h5.5A8.5 8.5 0 0 0 15 3.5Z",
   menu: "M4.5 7h15m-15 5h15m-15 5h15",
@@ -52,7 +52,7 @@ export type IconKind = keyof typeof paths;
 
 export function Icon({ kind, filled, size }: { kind: IconKind; filled?: boolean; size?: "s" | "l" }) {
   return <svg className={"icon-svg" + (size ? " icon-" + size : "")} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"}
-    stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    stroke="currentColor" strokeWidth={filled && kind === "person" ? 0 : 1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
     <path d={paths[kind]} />
   </svg>;
 }

@@ -4,9 +4,7 @@ import { useState } from "react";
 import type { Appearance } from "../../lib/appearance";
 import { workspaceShape, type Workspace } from "../../lib/learning";
 import { goalOf } from "../../lib/progress";
-import type { PartnerSummary } from "../../lib/social";
 import { Icon } from "./icons";
-import { PartnerCard } from "./progress-ui";
 import { SOUND_KEY, play } from "./sound";
 import { useStored, writeStored } from "./storage";
 import type { Mutate } from "./types";
@@ -16,8 +14,8 @@ const LEGACY_FORMAT = "kartenloop";
 
 type Props = {
   workspace: Workspace; busy: boolean; theme: Appearance; chatLink: string;
-  pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string }; partner?: PartnerSummary | null;
-  onInvite: () => void; onLeave: () => void; onBack: () => void;
+  pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string };
+  onBack: () => void;
   mutate: Mutate; onTheme: (value: Appearance) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
 };
@@ -26,7 +24,7 @@ const GOALS = [10, 20, 30, 50];
 const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
 const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
 
-export default function SettingsView({ workspace, busy, theme, chatLink, mutate, onTheme, onChatLink, onError, onNotice, pushKey, push, partner, onInvite, onLeave, onBack }: Props) {
+export default function SettingsView({ workspace, busy, theme, chatLink, mutate, onTheme, onChatLink, onError, onNotice, pushKey, push, onBack }: Props) {
   const sound = useStored(SOUND_KEY) !== "off";
   const morning = push?.morning ?? "06:45";
   const evening = push?.evening ?? "19:30";
@@ -62,7 +60,7 @@ export default function SettingsView({ workspace, busy, theme, chatLink, mutate,
   }
 
   return <>
-    <div className="view-bar"><button className="text-button" onClick={onBack}><Icon kind="back" /> Profil</button></div>
+    <div className="view-bar"><button className="icon-button" aria-label="Zurück zum Profil" onClick={onBack}><Icon kind="back" /></button></div>
     <header className="page-head"><h1>Einstellungen</h1></header>
     <section className="panel flow"><h2>Darstellung</h2>
       <div className="setting"><span className="setting-label" id="scheme">Farbschema</span>
@@ -93,11 +91,6 @@ export default function SettingsView({ workspace, busy, theme, chatLink, mutate,
         </div>
       </>
     </section>}
-    <section className="panel flow"><h2>Lernpartner</h2>
-      {partner ? <><PartnerCard partner={partner} /><div className="actions"><button className="button" onClick={onLeave}>Partnerschaft beenden</button></div></>
-        : <><p>Erreicht ihr beide euer Tagesziel, wächst eure gemeinsame Serie.</p>
-          <div className="actions"><button className="button primary" onClick={onInvite}><Icon kind="people" /> Partner einladen</button></div></>}
-    </section>
     <section className="panel"><details className="advanced"><summary>Erweitert</summary><div className="flow">
     <section className="flow"><h3>Datensicherung</h3><p>Die JSON Datei enthält deine Kartensets und deinen Lernstand.</p>
       <div className="actions"><button className="button primary" onClick={backup}>Sicherung herunterladen</button><label className="button file-button">Sicherung wiederherstellen<input type="file" accept=".json,application/json" disabled={busy} onChange={async event => {

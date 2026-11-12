@@ -22,19 +22,13 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
   const lines = (value: string) => value.split("\n").map(s => s.trim()).filter(Boolean);
 
   return <form onSubmit={onSave}>
-    <div className="view-bar"><button type="button" className="text-button" onClick={onBack}><Icon kind="back" /> Zurück</button></div>
-    <header className="page-head"><div><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
-</div></header>
-    {fresh && <button type="button" className="import-card chatgpt-card" onClick={onChat}>
-      <span className="mode-icon"><Icon kind="chat" /></span>
-      <span className="continue-copy"><strong>Mit ChatGPT erstellen</strong><span className="muted">Aus deinen Unterlagen, du prüfst danach</span></span>
-      <Icon kind="chevronRight" />
-    </button>}
-    {fresh && <button type="button" className="import-card" onClick={onImportNew}>
-      <span className="mode-icon"><Icon kind="import" /></span>
-      <span className="continue-copy"><strong>Liste importieren</strong><span className="muted">Quizlet, Excel, CSV</span></span>
-      <Icon kind="chevronRight" />
-    </button>}
+    <div className="view-bar"><button type="button" className="icon-button" aria-label="Zurück zum Set" onClick={onBack}><Icon kind="back" /></button></div>
+    <header className="page-head editor-heading"><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
+      <div className="editor-tools">
+        <button type="button" className="icon-button" title="Mit ChatGPT erstellen" aria-label="Mit ChatGPT erstellen" disabled={busy} onClick={onChat}><Icon kind="chat" /></button>
+        <button type="button" className="icon-button" title="Karten importieren" aria-label="Karten importieren" disabled={busy} onClick={fresh ? onImportNew : onImport}><Icon kind="import" /></button>
+      </div>
+    </header>
     <div className="panel editor-title flow"><label>Setname<input required maxLength={120} placeholder="Zum Beispiel Englisch Wortschatz" value={editor.title} onChange={event => onChange(current => ({ ...current, title: event.target.value }))} /></label>
       <div className="meta-panel">
         <label><span className="label-icon"><Icon kind="calendar" size="s" /> Prüfung</span><input type="date" value={editor.examDate ?? ""} onChange={event => onChange(current => ({ ...current, examDate: event.target.value }))} /></label>
@@ -60,7 +54,6 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
     <div className="actions editor-actions">
       <button className="button primary" disabled={busy}><Icon kind="check" /> Speichern</button>
       <button type="button" className="button" disabled={editor.cards.length >= 400} onClick={() => onChange(current => ({ ...current, cards: [...current.cards, row()] }))}><Icon kind="plus" /> Karte</button>
-      {!fresh && <button type="button" className="button" aria-label="Text importieren" title="Text importieren" onClick={onImport}><Icon kind="import" /><span className="wide-only">Importieren</span></button>}
       {editor.draftId && <button type="button" className="icon-button danger" aria-label="Entwurf verwerfen" title="Entwurf verwerfen" disabled={busy} onClick={onDiscard}><Icon kind="trash" /></button>}
       {editor.deckId && <button type="button" className="icon-button danger" aria-label="Set löschen" title="Set löschen" disabled={busy} onClick={onDelete}><Icon kind="trash" /></button>}
     </div>

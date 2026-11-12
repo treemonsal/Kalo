@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
-import { dayOf, deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
+import { dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
+import type { FriendSummary } from "../../lib/social";
 import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
 import { Avatar, shareLink } from "./progress-ui";
@@ -18,6 +19,9 @@ import ImportView from "./import-view";
 import { useReminders } from "./reminders";
 import SettingsView from "./settings-view";
 import ProfileView from "./profile-view";
+import ProfileEditor from "./profile-editor";
+import StreakCelebration from "./streak-celebration";
+import CardExplainSheet from "./card-explain-sheet";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
@@ -78,7 +82,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [confirm, confirmDialog] = useConfirm();
   const [duelToken, setDuelToken] = useState("");
   const [deckOrigin, setDeckOrigin] = useState<"home" | "profile">("home");
-  const [celebrate, setCelebrate] = useState<{ streak: number } | null>(null);
+  const [celebrate, setCelebrate] = useState<{ previous: number; streak: number } | null>(null);
+  const [explain, setExplain] = useState<{ card: Card; direction: Direction } | null>(null);
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
   const outbox = useRef<DurableQueue<MutateResult> | null>(null);
   const dataRef = useRef<Data | null>(null);
@@ -100,7 +105,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     const old = dataRef.current;
     if (old && next.revision < old.revision) return;
     // Mutation replies leave out partner and push key; keep the last known ones.
-    const value = { ...next, partner: next.partner === undefined ? old?.partner : next.partner, pushKey: next.pushKey ?? old?.pushKey };
+    const value = { ...next, friends: next.friends === undefined ? old?.friends : next.friends, partner: next.partner === undefined ? old?.partner : next.partner, pushKey: next.pushKey ?? old?.pushKey };
     dataRef.current = value;
     setData(value);
     if (!old) return;
@@ -112,7 +117,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (before < goal && after >= goal && readStored(shown) !== today) {
       writeStored(shown, today);
       play("goal");
-      setCelebrate({ streak: streak(value.workspace, Date.now()).days });
+      setCelebrate({ previous: streak(old.workspace, Date.now()).days, streak: streak(value.workspace, Date.now()).days });
     }
   }, [accountId]);
 
@@ -165,8 +170,9 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       const result = await fetch("/api/workspace" + (known === undefined ? "" : "?known=" + known), { cache: "no-store" });
       if (result.status === 401) { setProblem(problemFor(401, undefined, () => undefined)); return; }
       if (!result.ok) throw new Error();
-      const next = await result.json() as Data | { unchanged: true };
+      const next = await result.json() as Data | { unchanged: true; friends?: FriendSummary[]; partner?: Data["partner"] };
       if (!("unchanged" in next)) accept(next);
+      else if (dataRef.current && next.friends !== undefined) accept({ ...dataRef.current, friends: next.friends, partner: next.partner });
       setTime(Date.now());
       setProblem(current => current?.action?.label === "Erneut laden" ? null : current);
     } catch {
@@ -271,8 +277,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (!data || linkHandled.current) return;
     linkHandled.current = true;
     const params = new URLSearchParams(location.search);
-    const set = params.get("set"), partner = params.get("partner"), duel = params.get("duel");
-    if (!set && !partner && !duel) return;
+    const set = params.get("set"), friend = params.get("friend") ?? params.get("partner"), duel = params.get("duel");
+    if (!set && !friend && !duel) return;
     history.replaceState(null, "", location.pathname);
     void (async () => {
       if (duel) { setDuelToken(duel); setView("duel"); return; }
@@ -286,8 +292,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         if (result?.deckId) { setDeckId(result.deckId); setView("deck"); setNotice("Set übernommen"); }
         return;
       }
-      if (partner && await confirm({ title: "Lernpartner werden?", message: "Ihr seht gegenseitig, ob das Tagesziel erreicht ist, und baut eine gemeinsame Serie auf. Mehr seht ihr nicht.", confirm: "Partner werden" })) {
-        if (await mutate({ type: "acceptPartner", token: partner })) setNotice("Ihr seid jetzt Lernpartner");
+      if (friend && await confirm({ title: "Freund hinzufügen?", message: "Ihr seht eure Namen, Profilbilder und Lernfortschritte und baut gemeinsame Serien auf.", confirm: "Hinzufügen" })) {
+        if (await mutate({ type: "acceptFriend", token: friend })) setNotice("Freund hinzugefügt");
       }
     })();
   // Runs once, as soon as the library is loaded.
@@ -493,6 +499,11 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate("chat");
   }
 
+  function explainCard(item: Deck, cardId: string) {
+    const card = item.cards.find(card => card.id === cardId);
+    if (card) setExplain({ card, direction });
+  }
+
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -527,13 +538,13 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     if (result?.token) { setDuelToken(result.token); navigate("duel"); }
   }
 
-  async function invitePartner() {
-    const result = await mutate({ type: "invitePartner" });
-    if (result?.token) await share(location.origin + "/?partner=" + result.token, "Lernpartner in Kalo");
+  async function inviteFriend() {
+    const result = await mutate({ type: "inviteFriend" });
+    if (result?.token) await share(location.origin + "/?friend=" + result.token, "Freunde in Kalo");
   }
 
-  async function leavePartner() {
-    if (await confirm({ title: "Partnerschaft beenden?", message: "Eure gemeinsame Serie endet für beide.", confirm: "Beenden", destructive: true })) void mutate({ type: "leavePartner" });
+  async function removeFriend(friend: FriendSummary) {
+    if (await confirm({ title: "Freund entfernen?", message: "«" + friend.name + "» aus deinen Freunden entfernen?", confirm: "Entfernen", destructive: true })) void mutate({ type: "removeFriend", friendId: friend.id });
   }
 
   function returnToDeck() {
@@ -595,7 +606,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     };
   }
 
-  const profileView = view === "profile" || view === "stats" || view === "settings";
+  const profileView = view === "profile" || view === "profile-edit" || view === "stats" || view === "settings";
   const homeView = !profileView && view !== "chat";
   const creating = view === "editor" || view === "import";
   const writingBusy = busy || sync.pending > 0;
@@ -614,15 +625,16 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="white" opacity=".3" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg> Kalo
         </button>
         <div className="topbar-right">
-          {data && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
-            {sync.pending || busy ? <button className="text-button" onClick={() => void outbox.current?.retry(true)} title={sync.error ?? (sync.pending ? "Auf diesem Gerät gesichert. Wird automatisch übertragen, sobald die Verbindung steht." : "Wird auf dem Server gespeichert.")}>
+          {data && (sync.pending > 0 || busy) && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
+            <button className="text-button" onClick={() => void outbox.current?.retry(true)} title={sync.error ?? (sync.pending ? "Auf diesem Gerät gesichert. Wird automatisch übertragen, sobald die Verbindung steht." : "Wird auf dem Server gespeichert.")}>
               <Icon kind={sync.phase === "waiting" || sync.phase === "blocked" ? "cloudOff" : "repeat"} size="s" /><span>{sync.phase === "waiting" || sync.phase === "blocked" ? "Lokal gesichert" : "Wird gespeichert"}</span><span className="sr-only">{sync.pending} Aktionen ausstehend</span>
-            </button> : <span title="Alle Änderungen gespeichert" aria-label="Alle Änderungen gespeichert"><Icon kind="check" size="s" /></span>}
+            </button>
           </span>}
         {/* Statistics and settings belong to the profile, like in MyStyle. */}
         {view === "profile" && <div className="topbar-actions">
+          <button className="icon-button" aria-label="Profil bearbeiten" title="Profil bearbeiten" onClick={() => navigate("profile-edit")}><Icon kind="edit" /></button>
           <button className="icon-button" aria-label="Statistik" title="Statistik" onClick={() => navigate("stats")}><Icon kind="pie" /></button>
-          <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" onClick={() => navigate("settings")}><Icon kind="menu" /></button>
+          <button className="icon-button" aria-label="Einstellungen" title="Einstellungen" onClick={() => navigate("settings")}><Icon kind="settings" /></button>
         </div>}
         </div>
       </header>
@@ -646,9 +658,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
           onOpenDeck={openDeck} onCreate={() => edit()} />}
 
-        {workspace && view === "profile" && <ProfileView workspace={workspace} now={time} busy={writingBusy} mutate={mutate}
-          profile={data?.profile ?? { name: "Du", picture: null, custom: false }} partner={data?.partner} dueByDeck={dueByDeck}
-          onOpenDeck={item => openDeck(item, "profile")} onCreate={() => edit()} onError={message => setProblem({ message })} />}
+        {workspace && view === "profile" && <ProfileView workspace={workspace} now={time}
+          profile={data?.profile ?? { name: "Du", picture: null, custom: false }} friends={data?.friends ?? []} dueByDeck={dueByDeck}
+          onOpenDeck={item => openDeck(item, "profile")} onCreate={() => edit()} />}
+
+        {data && view === "profile-edit" && <ProfileEditor profile={data.profile ?? { name: "Du", picture: null, custom: false }} friends={data.friends ?? []} busy={writingBusy} mutate={mutate}
+          onBack={() => navigate("profile")} onInvite={() => void inviteFriend()} onRemove={friend => void removeFriend(friend)} onError={message => setProblem({ message })} />}
 
         {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => history.back()} />}
 
@@ -670,7 +685,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} confirm={confirm} deck={deck} start={cardsStart} direction={direction}
           workspace={workspace!} now={time} onStep={runStep}
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
-          onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => openChat(deck, cardId)}
+          onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => explainCard(deck, cardId)}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
           onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} />}
 
@@ -687,7 +702,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
-          pushKey={data?.pushKey} push={data?.push} partner={data?.partner} onInvite={() => void invitePartner()} onLeave={() => void leavePartner()} onBack={() => navigate("profile")}
+          pushKey={data?.pushKey} push={data?.push} onBack={() => navigate("profile")}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onChatLink={value => {
             const url = safeChatUrl(value);
@@ -704,9 +719,9 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       {/* Outside the top bar: its backdrop filter would otherwise anchor this fixed dock to the bar. */}
       <div className="bottom-dock">
         <nav aria-label="Hauptmenü">
-          <button aria-current={homeView ? "page" : undefined} onClick={() => navigate("home")}><Icon kind="home" filled={homeView} /><span>Home</span></button>
+          <button aria-current={homeView ? "page" : undefined} aria-label="Home" title="Home" onClick={() => navigate("home")}><Icon kind="home" filled={homeView} /></button>
           <button aria-current={profileView ? "page" : undefined} aria-label="Profil" onClick={() => navigate("profile")}>
-            {data?.profile?.picture ? <Avatar name={data.profile.name} picture={data.profile.picture} size={26} /> : <Icon kind="person" filled={profileView} />}<span>Profil</span></button>
+            {data?.profile?.picture ? <Avatar name={data.profile.name} picture={data.profile.picture} size={24} /> : <Icon kind="person" filled={profileView} />}</button>
         </nav>
           <button className="nav-create" data-open={creating || undefined} aria-label={creating ? "Bearbeiten schliessen" : "Neues Set erstellen"} title={creating ? "Schliessen" : "Neues Set"}
             onClick={() => { if (creating) history.back(); else { setDeckId(""); edit(); } }}>
@@ -715,11 +730,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           </button>
       </div>
       {confirmDialog}
-      {celebrate && <div className="goal-celebration" role="status">
-        <div className="goal-burst"><span className="celebration-ring"><Icon kind="check" size="l" /></span><i /><i /><i /><i /><i /><i /><i /><i /></div>
-        <strong>Tagesziel erreicht</strong>
-        <span><Icon kind="flame" filled /> Serie {celebrate.streak} {celebrate.streak === 1 ? "Tag" : "Tage"}</span>
-      </div>}
+      {celebrate && <StreakCelebration previous={celebrate.previous} days={celebrate.streak} onClose={() => setCelebrate(null)} />}
+      {explain && <CardExplainSheet card={explain.card} direction={explain.direction} chatUrl={safeChatUrl(chatLink)} onClose={() => setExplain(null)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { apply, choices, dayOf, dueCards, shuffle, type CardInput } from "./learning.ts";
 import { dayStats, goalOf, sharedStreak, streak } from "./progress.ts";
-import type { Account, AccountStore } from "./service.ts";
+import type { Account, AccountStore, SocialAccount } from "./service.ts";
 
 /**
  * Sharing between people. Shared sets, partner invites and duels live in their own rows of the accounts
@@ -16,6 +16,9 @@ export const socialShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("invitePartner") }),
   z.object({ type: z.literal("acceptPartner"), token: key }),
   z.object({ type: z.literal("leavePartner") }),
+  z.object({ type: z.literal("inviteFriend") }),
+  z.object({ type: z.literal("acceptFriend"), token: key }),
+  z.object({ type: z.literal("removeFriend"), friendId: z.string().min(1).refine(value => value.trim() === value && !value.includes(":")) }),
   z.object({ type: z.literal("createDuel"), deckId: key }),
   z.object({ type: z.literal("duelResult"), token: key, answers: z.array(z.string().max(1500)).max(10), ms: z.number().int().min(0).max(3_600_000) }),
   z.object({ type: z.literal("pushSubscribe"), morning: time, evening: time,
@@ -26,7 +29,8 @@ export const socialShape = z.discriminatedUnion("type", [
 export type SocialAction = z.infer<typeof socialShape>;
 
 export type Share = { owner: string; ownerName: string; title: string; cards: CardInput[]; imports: number; created: number };
-export type Invite = { owner: string; ownerName: string; expires: number };
+export type Invite = { owner: string; ownerName: string; expires: number; acceptedBy?: string; acceptedAt?: number };
+export type FriendRef = { id: string; name: string };
 export type DuelQuestion = { prompt: string; options: string[]; answer: string };
 export type DuelResult = { id: string; name: string; correct: number; ms: number; at: number };
 export type Duel = { owner: string; ownerName: string; title: string; questions: DuelQuestion[]; results: DuelResult[]; created: number };
@@ -35,11 +39,88 @@ export type SocialReply = { status: number; body: Record<string, unknown> };
 
 const ATTEMPTS = 3;
 const INVITE_DAYS = 7;
+export const MAX_FRIENDS = 50;
 export const DUEL_SIZE = 10;
 
 class Refusal extends Error {
   readonly status: number;
   constructor(message: string, status = 400) { super(message); this.status = status; }
+}
+
+/** Legacy partner references are kept until the next friendship write, without dropping or duplicating anyone. */
+export function friendRefs(account: Pick<SocialAccount, "friends" | "partner">): FriendRef[] {
+  const refs: FriendRef[] = [];
+  const candidates: unknown[] = Array.isArray(account.friends) ? [...account.friends] : [];
+  if (account.partner) candidates.push(account.partner);
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || !("id" in candidate) || typeof candidate.id !== "string"
+      || !candidate.id || candidate.id.trim() !== candidate.id || candidate.id.includes(":") || refs.some(ref => ref.id === candidate.id)) continue;
+    refs.push({ id: candidate.id, name: "name" in candidate && typeof candidate.name === "string" ? candidate.name : "Freund" });
+  }
+  return refs;
+}
+
+function setFriends(account: Account, refs: FriendRef[]) {
+  account.friends = refs;
+  if (refs[0]) account.partner = refs[0];
+  else delete account.partner;
+}
+
+/** Make the row available for a subsequent atomic CAS; a concurrent insert is harmless. */
+async function existingAccount(store: AccountStore, owner: string) {
+  const account = await store.read(owner);
+  if (account.revision) return account;
+  await store.write(owner, account);
+  return store.read(owner);
+}
+
+async function acceptFriend(store: AccountStore, me: Me, token: string, now: number) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    const record = await store.getRecord<Invite>("partner:" + token);
+    if (!record || record.data.expires <= now || !record.data.owner || record.data.owner.includes(":")) throw new Refusal("Diese Einladung ist ungültig oder abgelaufen.", 404);
+    const invite = record.data;
+    if (invite.owner === me.id) throw new Refusal("Das ist deine eigene Einladung. Schick den Link einem Freund.");
+    if (invite.acceptedBy && invite.acceptedBy !== me.id) throw new Refusal("Diese Einladung wurde bereits verwendet.", 404);
+    const [mine, theirs] = await Promise.all([existingAccount(store, me.id), existingAccount(store, invite.owner)]);
+    const ownRefs = friendRefs(mine);
+    const theirRefs = friendRefs(theirs);
+    const ownConnected = ownRefs.some(ref => ref.id === invite.owner);
+    const theirConnected = theirRefs.some(ref => ref.id === me.id);
+    // A retry may confirm a successful acceptance, but cannot undo a later removal.
+    if (invite.acceptedBy) {
+      if (ownConnected && theirConnected) return mine;
+      throw new Refusal("Diese Einladung wurde bereits verwendet. Lass dir eine neue Einladung schicken.", 409);
+    }
+    if (!ownConnected && ownRefs.length >= MAX_FRIENDS || !theirConnected && theirRefs.length >= MAX_FRIENDS) throw new Refusal("Pro Person sind höchstens 50 Freunde möglich.", 409);
+    if (!ownConnected) ownRefs.push({ id: invite.owner, name: invite.ownerName });
+    if (!theirConnected) theirRefs.push({ id: me.id, name: me.name });
+    setFriends(mine, ownRefs);
+    setFriends(theirs, theirRefs);
+    if (await store.writeSocial([{ owner: me.id, account: mine }, { owner: invite.owner, account: theirs }], {
+      key: "partner:" + token, revision: record.revision, data: { ...invite, acceptedBy: me.id, acceptedAt: now },
+    })) return { ...mine, revision: mine.revision + 1 };
+  }
+  throw new Refusal("Gerade wird gleichzeitig gespeichert. Versuche es erneut.", 409);
+}
+
+async function removeFriend(store: AccountStore, me: Me, friendId?: string) {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+    const mine = await existingAccount(store, me.id);
+    const ownRefs = friendRefs(mine);
+    let target = friendId;
+    if (!target) {
+      // The old action removes exactly the first mutual friend shown by the old summary.
+      for (const ref of ownRefs) {
+        if (ref.id !== me.id && friendRefs(await store.readSocial(ref.id)).some(ref => ref.id === me.id)) { target = ref.id; break; }
+      }
+    }
+    if (!target || target === me.id || !ownRefs.some(ref => ref.id === target)) return mine;
+    const theirs = await existingAccount(store, target);
+    setFriends(mine, ownRefs.filter(ref => ref.id !== target));
+    setFriends(theirs, friendRefs(theirs).filter(ref => ref.id !== me.id));
+    if (await store.writeSocial([{ owner: me.id, account: mine }, { owner: target, account: theirs }])) return { ...mine, revision: mine.revision + 1 };
+  }
+  throw new Refusal("Gerade wird gleichzeitig gespeichert. Versuche es erneut.", 409);
 }
 
 /** Reads, changes and writes one account with optimistic retries. */
@@ -94,31 +175,16 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
       if (share.owner !== me.id) await updateRecord<Share>(store, "share:" + action.token, data => ({ ...data, imports: data.imports + 1 })).catch(() => undefined);
       return { status: 200, body: { account, deckId } };
     }
-    if (action.type === "invitePartner") {
+    if (action.type === "invitePartner" || action.type === "inviteFriend") {
       const token = crypto.randomUUID();
-      await store.putRecord("partner:" + token, 0, { owner: me.id, ownerName: me.name, expires: now + INVITE_DAYS * 86_400_000 } satisfies Invite);
+      if (!await store.putRecord("partner:" + token, 0, { owner: me.id, ownerName: me.name, expires: now + INVITE_DAYS * 86_400_000 } satisfies Invite)) throw new Refusal("Die Einladung konnte nicht erstellt werden. Versuche es erneut.", 409);
       return { status: 200, body: { token } };
     }
-    if (action.type === "acceptPartner") {
-      const record = await store.getRecord<Invite>("partner:" + action.token);
-      if (!record || record.data.expires < now) throw new Refusal("Diese Einladung ist ungültig oder abgelaufen.", 404);
-      const invite = record.data;
-      if (invite.owner === me.id) throw new Refusal("Das ist deine eigene Einladung. Schick den Link deinem Lernpartner.");
-      const mine = await store.read(me.id);
-      if (mine.partner && mine.partner.id !== invite.owner) throw new Refusal("Du hast schon einen Lernpartner. Beende die Partnerschaft zuerst in den Einstellungen.", 409);
-      const theirs = await store.read(invite.owner);
-      if (theirs.partner && theirs.partner.id !== me.id) throw new Refusal(invite.ownerName + " hat inzwischen einen anderen Lernpartner.", 409);
-      await updateAccount(store, invite.owner, account => { account.partner = { id: me.id, name: me.name }; });
-      const account = await updateAccount(store, me.id, account => { account.partner = { id: invite.owner, name: invite.ownerName }; });
-      await store.dropRecord("partner:" + action.token);
-      return { status: 200, body: { account } };
+    if (action.type === "acceptPartner" || action.type === "acceptFriend") {
+      return { status: 200, body: { account: await acceptFriend(store, me, action.token, now) } };
     }
-    if (action.type === "leavePartner") {
-      const mine = await store.read(me.id);
-      const partner = mine.partner;
-      if (partner) await updateAccount(store, partner.id, account => { if (account.partner?.id === me.id) delete account.partner; });
-      const account = await updateAccount(store, me.id, current => { delete current.partner; });
-      return { status: 200, body: { account } };
+    if (action.type === "leavePartner" || action.type === "removeFriend") {
+      return { status: 200, body: { account: await removeFriend(store, me, action.type === "removeFriend" ? action.friendId : undefined) } };
     }
     if (action.type === "createDuel") {
       const mine = await store.read(me.id);
@@ -165,17 +231,28 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
 }
 
 export type PartnerSummary = { name: string; picture?: string; streak: number; shared: number; todayDone: boolean; todayPoints: number; goal: number };
+export type FriendSummary = PartnerSummary & { id: string };
+
+export async function friendSummaries(store: AccountStore, account: SocialAccount, myId: string, now: number): Promise<FriendSummary[]> {
+  const summaries: FriendSummary[] = [];
+  for (const friend of friendRefs(account)) {
+    if (friend.id === myId) continue;
+    const theirs = await store.readSocial(friend.id);
+    if (!friendRefs(theirs).some(ref => ref.id === myId)) continue;
+    const today = dayStats(theirs.workspace, dayOf(now));
+    const own = streak(theirs.workspace, now);
+    summaries.push({ id: friend.id, name: theirs.profile?.name || friend.name, picture: theirs.profile?.picture,
+      streak: own.days, shared: sharedStreak(account.workspace, theirs.workspace, now).days,
+      todayDone: own.todayDone, todayPoints: today.points, goal: goalOf(theirs.workspace) });
+  }
+  return summaries;
+}
 
 export async function partnerSummary(store: AccountStore, account: Account, myId: string, now: number): Promise<PartnerSummary | null> {
-  if (!account.partner) return null;
-  const theirs = await store.read(account.partner.id);
-  if (theirs.partner?.id !== myId) return null;
-  const today = dayStats(theirs.workspace, dayOf(now));
-  const own = streak(theirs.workspace, now);
-  return {
-    name: theirs.profile?.name || account.partner.name, picture: theirs.profile?.picture, streak: own.days, shared: sharedStreak(account.workspace, theirs.workspace, now).days,
-    todayDone: own.todayDone, todayPoints: today.points, goal: goalOf(theirs.workspace),
-  };
+  const first = (await friendSummaries(store, account, myId, now))[0];
+  if (!first) return null;
+  return { name: first.name, picture: first.picture, streak: first.streak, shared: first.shared,
+    todayDone: first.todayDone, todayPoints: first.todayPoints, goal: first.goal };
 }
 
 export function dueTotal(account: Account, now: number) {
