@@ -32,13 +32,12 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
   return <>
     <header className="page-head"><h1>Was lernst du heute?</h1></header>
 
-    {workspace.decks.length === 0 ? <EmptyState icon="cards" title="Dein erstes Set" text="Erstelle Karten oder übernimm deinen Lernstoff mit ChatGPT.">
+    {workspace.decks.length === 0 ? <EmptyState icon="cards" title="Dein erstes Set">
       <button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button>
     </EmptyState> : <>
       {primary ? <button className="continue-card learning-primary" disabled={busy} onClick={primary.open}>
         <span className="continue-copy"><span className="eyebrow">{primary.label}</span><strong>{primary.title}</strong>
           {primary.progress !== undefined && <span className="meter"><i style={{ width: Math.round(primary.progress * 100) + "%" }} /></span>}
-          <span className="muted">{primary.detail}</span>
         </span><span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
       </button> : <div className="daily-done"><Icon kind="check" /><div><strong>Alles für heute geschafft</strong>{Number.isFinite(nextReview) && <p>Nächste Wiederholung {dateFormat.format(nextReview)}</p>}</div></div>}
       <DailyHero workspace={workspace} now={now} onGoal={onGoal} />
@@ -50,12 +49,17 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
       {drafts.map(draft => <button key={draft.id} className="text-button" onClick={() => onDraft(draft)}><Icon kind="chat" /><span>{draft.title} · Entwurf prüfen</span><Icon kind="chevronRight" size="s" /></button>)}
     </div>}
 
-    {dueSets.length > 0 && <details className="advanced due-sets home-due"><summary><Icon kind="repeat" size="s" /> {plural(dueCount, "fällige Karte", "fällige Karten")}</summary>
-      <ul className="due-list">{dueSets.map(item => <li key={item.deck.id + item.side}>
-        <div><strong>{item.deck.title}</strong><span>{item.count} · {item.side === "front" ? "Vorderseite" : "Rückseite"}</span></div>
-        <button className="icon-button" disabled={busy} onClick={() => onReview(item)} aria-label={item.deck.title + " wiederholen, " + item.count + " Karten"}><Icon kind="forward" /></button>
-      </li>)}</ul>
-    </details>}
+    {dueSets.length > 0 && <section className="due-section" aria-label="Fällige Karten">
+      <button className="due-alert" disabled={busy} onClick={() => onReview(dueSets[0])}>
+        <span className="due-alert-count">{dueCount}</span><span className="due-alert-copy"><strong>Fällige Karten</strong><span>Jetzt wiederholen</span></span><Icon kind="forward" />
+      </button>
+      {dueSets.length > 1 && <details className="advanced due-sets"><summary>{dueSets.length} Sets</summary>
+        <ul className="due-list">{dueSets.map(item => <li key={item.deck.id + item.side}>
+          <div><strong>{item.deck.title}</strong><span>{item.count} · {item.side === "front" ? "Vorderseite" : "Rückseite"}</span></div>
+          <button className="icon-button" disabled={busy} onClick={() => onReview(item)} aria-label={item.deck.title + " wiederholen, " + item.count + " Karten"}><Icon kind="forward" /></button>
+        </li>)}</ul>
+      </details>}
+    </section>}
 
     {exam && <button className="home-exam" onClick={() => onOpenDeck(exam.deck)}><Icon kind="calendar" /><span><strong>{exam.deck.title}</strong><span>{exam.days === 0 ? "Prüfung heute" : "Prüfung in " + exam.days + (exam.days === 1 ? " Tag" : " Tagen")}{exam.open ? " · " + exam.open + " Karten offen" : ""}</span></span><Icon kind="chevronRight" size="s" /></button>}
 

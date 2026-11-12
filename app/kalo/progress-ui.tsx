@@ -32,20 +32,17 @@ export function MasteryRing({ share }: { share: number }) {
   </span>;
 }
 
-/** A compact daily goal; detailed measurements belong to Statistics. */
+/** Today's progress is a pair of compact icon metrics. */
 export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; now: number; onGoal: () => void }) {
   const goal = goalOf(workspace);
   const today = dayStats(workspace, dayOf(now));
   const current = streak(workspace, now);
-  const left = Math.max(0, goal - today.points);
   return <section className="hero compact" aria-label="Heute">
-    <button className="hero-goal" onClick={onGoal} aria-label="Tagesziel ändern">
-      <GoalRing points={today.points} goal={goal} size={48} />
-      <span className="hero-copy"><strong>{left ? left + " Punkte übrig" : "Tagesziel erreicht"}</strong><span>{today.points} von {goal} Punkten</span></span>
+    <button className="hero-goal" onClick={onGoal} aria-label={"Tagesziel ändern, " + today.points + " von " + goal + " Punkten"} title="Tagesziel" data-done={today.points >= goal}>
+      <Icon kind="target" /><strong>{today.points}<span className="metric-goal">/{goal}</span></strong>
     </button>
-    <div className="hero-streak" data-active={current.days > 0}>
-      <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span>
-      <span className="hero-copy"><strong>{current.days}</strong><span>{current.days === 1 ? "Tag Serie" : "Tage Serie"}</span></span>
+    <div className="hero-streak" data-active={current.days > 0} aria-label={current.days + " Tage Serie"} title="Serie">
+      <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong>
     </div>
   </section>;
 }

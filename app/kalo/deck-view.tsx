@@ -44,7 +44,7 @@ export default function DeckView(props: Props) {
 
   return <>
     <div className="view-bar">
-      <button className="text-button" aria-label={"Zurück zu " + props.backLabel} onClick={props.onHome}><Icon kind="back" /> {props.backLabel}</button>
+      <button className="text-button" aria-label={"Zurück zu " + props.backLabel} onClick={props.onHome}><Icon kind="back" /></button>
       <button className="text-button" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
     </div>
     <header className="page-head">

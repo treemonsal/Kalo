@@ -1,100 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { secure, type Deck, type Workspace } from "../../lib/learning";
 import { examIn, streak } from "../../lib/progress";
-import type { PartnerSummary } from "../../lib/social";
+import type { FriendSummary } from "../../lib/social";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
-import { loadImage } from "./picture";
-import { PictureCrop } from "./picture-crop";
-import { PictureMenu } from "./picture-menu";
-import { Avatar, MasteryRing, PartnerCard } from "./progress-ui";
-import { plural, type Mutate } from "./types";
+import { Avatar, MasteryRing } from "./progress-ui";
+import { plural } from "./types";
 
 type Props = {
-  workspace: Workspace; now: number; busy: boolean; profile: { name: string; picture: string | null; custom: boolean };
-  partner?: PartnerSummary | null; dueByDeck: Map<string, number>; mutate: Mutate;
-  onOpenDeck: (deck: Deck) => void; onCreate: () => void; onError: (message: string) => void;
+  workspace: Workspace; now: number; profile: { name: string; picture: string | null; custom: boolean };
+  friends: FriendSummary[]; dueByDeck: Map<string, number>;
+  onOpenDeck: (deck: Deck) => void; onCreate: () => void;
 };
 
-/** Who you are and all your sets, like the profile in MyStyle. */
-export default function ProfileView({ workspace, now, busy, profile, partner, dueByDeck, mutate, onOpenDeck, onCreate, onError }: Props) {
+export default function ProfileView({ workspace, now, profile, friends, dueByDeck, onOpenDeck, onCreate }: Props) {
   const [search, setSearch] = useState("");
-  const [naming, setNaming] = useState<string | null>(null);
-  const [pictureMenu, setPictureMenu] = useState(false);
-  const [pictureDraft, setPictureDraft] = useState<{ image: HTMLImageElement; url: string } | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  useEffect(() => () => { if (pictureDraft) URL.revokeObjectURL(pictureDraft.url); }, [pictureDraft]);
   const query = search.trim().toLocaleLowerCase("de-CH");
-  const decks = workspace.decks.filter(item => !query ||
-    [item.title, item.subject ?? "", ...item.cards.flatMap(card => [card.front, card.back])]
-      .some(value => value.toLocaleLowerCase("de-CH").includes(query)));
+  const decks = workspace.decks.filter(item => !query || [item.title, item.subject ?? "", ...item.cards.flatMap(card => [card.front, card.back])].some(value => value.toLocaleLowerCase("de-CH").includes(query)));
   const cards = workspace.decks.reduce((total, deck) => total + deck.cards.length, 0);
-  const sitting = workspace.decks.reduce((total, deck) => total + deck.cards.filter(card => secure(workspace, card.id, "front") || secure(workspace, card.id, "back")).length, 0);
   const days = streak(workspace, now).days;
-  const stats = ([["Sets", workspace.decks.length], ["Karten", cards], ["Sitzen", sitting], ["Serie", days]] as const);
-
-  async function choose(file: Blob | undefined) {
-    if (!file) return;
-    if (file.size > 30_000_000) { onError("Wähle ein Foto unter 30 MB."); return; }
-    setPictureMenu(false);
-    try { setPictureDraft(await loadImage(file)); }
-    catch (error) { onError(error instanceof Error ? error.message : "Dieses Bild geht nicht."); }
-  }
-
-  async function cropExisting() {
-    try { if (profile.picture) await choose(await (await fetch(profile.picture)).blob()); }
-    catch { onError("Dieses Bild lässt sich nicht öffnen."); }
-  }
-
-  async function saveName(event: React.FormEvent) {
-    event.preventDefault();
-    if (naming === null) return;
-    if (await mutate({ type: "profile", name: naming.trim() })) setNaming(null);
-  }
-
   return <>
     <section className="profile-head" aria-label="Profil">
-      <button className="profile-picture" title="Profilbild bearbeiten" aria-label="Profilbild bearbeiten" disabled={busy} onClick={() => setPictureMenu(true)}>
-        <Avatar name={profile.name} picture={profile.picture} size={84} />
-        <span className="picture-badge" aria-hidden="true"><Icon kind="camera" size="s" /></span>
-      </button>
-      <input ref={fileInput} type="file" accept="image/*" hidden aria-label="Profilbild wählen"
-        onChange={event => { void choose(event.target.files?.[0]); event.target.value = ""; }} />
-      {naming === null
-        ? <div className="profile-name"><h1>{profile.name}</h1>
-          <button className="icon-button" aria-label="Namen ändern" title="Namen ändern" onClick={() => setNaming(profile.custom ? profile.name : "")}><Icon kind="edit" /></button></div>
-        : <form className="profile-name-form" onSubmit={saveName}>
-          <label className="sr-only" htmlFor="profile-name">Dein Name</label>
-          <input id="profile-name" autoFocus maxLength={30} value={naming} placeholder={profile.name} onChange={event => setNaming(event.target.value)} />
-          <button className="button primary small" disabled={busy}>Speichern</button>
-          <button type="button" className="button small" onClick={() => setNaming(null)}>Abbrechen</button>
-        </form>}
-      {/* Numbers only once they say something: no row of zeros. */}
-      {workspace.decks.length > 0 && <dl className="profile-stats">{stats.map(([label, value]) =>
-        <div key={label}><dd>{value}</dd><dt>{label}</dt></div>)}</dl>}
+      <Avatar name={profile.name} picture={profile.picture} size={84} />
+      <h1 className="profile-title">{profile.name}</h1>
+      <ul className="profile-metrics">
+        <li aria-label={workspace.decks.length + " Sets"} title="Sets"><Icon kind="library" /><span>{workspace.decks.length}</span></li>
+        <li aria-label={cards + " Karten"} title="Karten"><Icon kind="cards" /><span>{cards}</span></li>
+        <li aria-label={days + " Tage Serie"} title="Serie" data-active={days > 0}><Icon kind="flame" filled={days > 0} /><span>{days}</span></li>
+      </ul>
     </section>
-
-    {pictureMenu && <PictureMenu hasPicture={Boolean(profile.picture)} busy={busy} onClose={() => setPictureMenu(false)}
-      onChoose={() => fileInput.current?.click()} onCrop={() => void cropExisting()}
-      onRemove={() => void mutate({ type: "profile", picture: null }).then(result => { if (result) setPictureMenu(false); })} />}
-    {pictureDraft && <PictureCrop key={pictureDraft.url} image={pictureDraft.image} onCancel={() => setPictureDraft(null)}
-      onDone={async picture => {
-        const result = await mutate({ type: "profile", picture });
-        if (!result) throw new Error("Speichern ging nicht. Prüfe die Verbindung und versuche es nochmals.");
-        setPictureDraft(null);
-      }} />}
-
-    {partner && <PartnerCard partner={partner} />}
-
+    {friends.length > 0 && <section className="profile-friends" aria-label="Freunde"><div className="friend-tiles">{friends.map(friend =>
+      <div key={friend.id} className="friend-tile"><Avatar name={friend.name} picture={friend.picture} size={44} /><span>{friend.name}</span><span className="friend-streak" aria-label={friend.shared + " Tage gemeinsam"} data-active={friend.shared > 0}><Icon kind="flame" filled={friend.shared > 0} size="s" />{friend.shared}</span></div>
+    )}</div></section>}
     <section aria-labelledby="sets" className="sets">
       <div className="section-head"><h2 id="sets">Meine Sets</h2>
-        {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Sets durchsuchen</span>
-          <input type="search" value={search} placeholder="Suchen" onChange={event => setSearch(event.target.value)} /></label>}
+        {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Sets durchsuchen</span><input type="search" value={search} placeholder="Suchen" onChange={event => setSearch(event.target.value)} /></label>}
       </div>
       {decks.length ? <div className="decks">{decks.map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>
-        : workspace.decks.length ? <EmptyState icon="search" title="Nichts gefunden" text={"Kein Set enthält «" + search.trim() + "»."}><button className="button" onClick={() => setSearch("")}>Suche zurücksetzen</button></EmptyState>
+        : workspace.decks.length ? <EmptyState icon="search" title="Nichts gefunden"><button className="button" onClick={() => setSearch("")}>Suche zurücksetzen</button></EmptyState>
           : <EmptyState icon="cards" title="Dein erstes Set"><button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button></EmptyState>}
     </section>
   </>;
