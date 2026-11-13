@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { deckDigest, type Workspace } from "../lib/learning.ts";
-import { AccountStore, api, mcp } from "../lib/service.ts";
+import { AccountStore, api, explainApi, mcp } from "../lib/service.ts";
+import type { PairExplanation } from "../lib/explanations.ts";
 import { reminderFor, runReminders, vapidAuthorization } from "../lib/push.ts";
 
 function setup() {
@@ -27,6 +28,28 @@ function setup() {
   return { store, request, now };
 }
 const save = { type: "save", title: "Privat", cards: [{ front: "Geheim", back: "Antwort" }] };
+
+test("Worterklärungen laden ausschliesslich die aktuelle eigene Karte", async () => {
+  const { store, request, now } = setup();
+  await api(request("alice", { action: { ...save, cards: [{ front: "improve", back: "verbessern" }, { front: "private", back: "privat" }] } }), store, now);
+  const account = await store.read("alice"); const deck = account.workspace.decks[0];
+  const input = { deckId: deck.id, cardId: deck.cards[0].id };
+  const lookup = async (url: string) => {
+    const word = new URL(url).pathname.split("/").at(-1);
+    assert.ok(word === "improve" || word === "verbessern", "No other card may leave the app");
+    return Response.json({ en: [{ definitions: [{ definition: "To make something better." }] }] });
+  };
+  assert.equal((await explainApi(request(null, input), store, lookup)).status, 401);
+  assert.equal((await explainApi(request("bob", input), store, lookup)).status, 404);
+  const foreign = request("alice", input); foreign.headers.set("sec-fetch-site", "same-site");
+  assert.equal((await explainApi(foreign, store, lookup)).status, 403);
+  const result = await explainApi(request("alice", input), store, lookup);
+  assert.equal(result.status, 200);
+  const resultBody = await result.json() as PairExplanation;
+  assert.equal(resultBody.front.meanings[0].definition, "To make something better.");
+  assert.equal(resultBody.back.term, "verbessern");
+  assert.deepEqual(await store.read("alice"), account);
+});
 const tool = (name: string, args: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
 
 type ApiReply = { workspace: Workspace; revision: number; drafts: { id: string }[]; token?: string };

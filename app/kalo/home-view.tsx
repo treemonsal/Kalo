@@ -51,9 +51,9 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
 
     {dueSets.length > 0 && <section className="due-section" aria-label="Fällige Karten">
       <button className="due-alert" disabled={busy} onClick={() => onReview(dueSets[0])}>
-        <span className="due-alert-count">{dueCount}</span><span className="due-alert-copy"><strong>Fällige Karten</strong><span>Jetzt wiederholen</span></span><Icon kind="forward" />
+        <span className="due-alert-count">{dueCount}</span><span className="due-alert-copy">Fällig</span><Icon kind="forward" />
       </button>
-      {dueSets.length > 1 && <details className="advanced due-sets"><summary>{dueSets.length} Sets</summary>
+      {dueSets.length > 1 && <details className="advanced due-sets"><summary aria-label="Fällige Sets anzeigen"><Icon kind="library" size="s" /> {dueSets.length}</summary>
         <ul className="due-list">{dueSets.map(item => <li key={item.deck.id + item.side}>
           <div><strong>{item.deck.title}</strong><span>{item.count} · {item.side === "front" ? "Vorderseite" : "Rückseite"}</span></div>
           <button className="icon-button" disabled={busy} onClick={() => onReview(item)} aria-label={item.deck.title + " wiederholen, " + item.count + " Karten"}><Icon kind="forward" /></button>

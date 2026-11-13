@@ -33,6 +33,7 @@ const sessionShape = z.object({
   cursor: z.number().int().min(0).max(400), round: z.number().int().positive(), done: z.boolean(),
   correct: z.number().int().nonnegative(), mistakes: z.array(key).max(400),
   combo: z.number().int().nonnegative().optional(), best: z.number().int().nonnegative().optional(),
+  dueOnly: z.boolean().optional(),
 });
 const reviewShape = z.object({
   cardId: z.string().max(55), due: z.string().datetime(), lastReview: z.string().datetime().nullable(),
@@ -67,6 +68,7 @@ export const passKey = (deckId: string, direction: Direction) => deckId + ":" + 
 
 export const workspaceShape = z.object({
   decks: z.array(deckShape).max(80), session: sessionShape.nullable(),
+  pausedSessions: z.array(sessionShape).optional(),
   reviews: z.record(reviewShape), progress: z.record(tallyShape), mistakes: z.record(z.array(key).max(400)),
   lastSort: lastSortShape.nullable().optional(),
   passes: z.record(passShape).optional(),
@@ -80,6 +82,7 @@ export type Direction = z.infer<typeof directionShape>;
 export type Mode = z.infer<typeof modeShape>;
 export type Filter = z.infer<typeof filterShape>;
 export type Workspace = z.infer<typeof workspaceShape>;
+export type Session = z.infer<typeof sessionShape>;
 type Review = z.infer<typeof reviewShape>;
 
 const position = { sessionId: key, cursor: z.number().int().nonnegative() };
@@ -90,6 +93,7 @@ export const actionShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("star"), deckId: key, cardId: key, starred: z.boolean() }),
   z.object({ type: z.literal("start"), deckId: key, mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean().default(false), dueOnly: z.boolean().optional() }),
   z.object({ type: z.literal("continueLearn"), sessionId: key }),
+  z.object({ type: z.literal("resumeSession"), sessionId: key }),
   z.object({ type: z.literal("answer"), ...position, round: z.number().int().positive(), answer: z.string().max(3000), self: z.boolean().optional() }),
   z.object({ type: z.literal("rate"), ...position, grade: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }),
   z.object({ type: z.literal("sortCard"), deckId: key, cardId: key, direction: directionShape, known: z.boolean(), sortId: key.optional() }),
@@ -338,8 +342,9 @@ function checkBackup(state: Workspace) {
     }
     if (state.reviews[id] && state.reviews[id].cardId !== id) throw new Error("Ungültiger Wiederholungsstand.");
   }
-  const session = state.session;
-  if (session) {
+  const sessions = [state.session, ...(state.pausedSessions ?? [])].filter((s): s is Session => s !== null);
+  if (new Set(sessions.map(s => s.id)).size !== sessions.length) throw new Error("Die Sicherung enthält doppelte Lernrunden.");
+  for (const session of sessions) {
     const valid = new Set(state.decks.find(d => d.id === session.deckId)?.cards.map(c => c.id));
     if (!decks.has(session.deckId) || [...session.initial, ...session.queue, ...session.mistakes, ...Object.keys(session.tally)].some(id => !valid.has(id))
       || (!session.done && session.cursor >= session.queue.length)) throw new Error("Die Sicherung enthält eine ungültige Lernrunde.");
@@ -383,6 +388,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       old.title = action.title;
       old.cards = cards;
       if (state.session?.deckId === old.id && changed.length) state.session = null;
+      if (changed.length && state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => s.deckId !== old.id);
     } else {
       state.decks.unshift({ id: crypto.randomUUID(), title: action.title, cards });
     }
@@ -412,6 +418,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     state.decks = state.decks.filter(d => d.id !== old.id);
     if (state.passes) for (const direction of ["front", "back"] as const) delete state.passes[passKey(old.id, direction)];
     if (state.session?.deckId === old.id) state.session = null;
+    if (state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => s.deckId !== old.id);
     return state;
   }
   if (action.type === "setGoal") {
@@ -463,6 +470,13 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     track(state, now, { cards: -1, points: -1 });
     return state;
   }
+  if (action.type === "resumeSession") {
+    if (state.session?.id === action.sessionId) return state;
+    const saved = state.pausedSessions?.find(s => s.id === action.sessionId && !s.done);
+    if (!saved) throw new Error("Diese Lernrunde ist nicht mehr verfügbar.");
+    activateSession(state, saved);
+    return state;
+  }
   if (action.type === "start" || action.type === "continueLearn") {
     const finished = action.type === "continueLearn" ? state.session : null;
     if (action.type === "continueLearn" && (!finished?.done || finished.id !== action.sessionId || finished.mode !== "learn")) {
@@ -483,9 +497,10 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     const tally = Object.fromEntries(cards.map(c => [c.id, config.mode === "learn"
       ? state.progress[reviewKey(c.id, config.direction)] ?? blank() : blank()]));
     const queue = config.mode === "learn" ? initial.filter(id => tally[id].streak < 2) : initial;
-    state.session = { id: crypto.randomUUID(), deckId: deck.id, mode: config.mode,
+    activateSession(state, { id: crypto.randomUUID(), deckId: deck.id, mode: config.mode,
       direction: config.direction, filter: config.filter, writing: config.writing, initial, queue, tally,
-      cursor: 0, round: 1, done: !queue.length, correct: 0, mistakes: [], combo: 0, best: 0 };
+      cursor: 0, round: 1, done: !queue.length, correct: 0, mistakes: [], combo: 0, best: 0,
+      ...(action.type === "start" && action.dueOnly ? { dueOnly: true } : {}) });
     return state;
   }
   const s = state.session;
@@ -542,4 +557,12 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     s.done = true;
   }
   return state;
+}
+
+/** Switching activities preserves the exact unfinished round, including question order and cursor. */
+function activateSession(state: Workspace, next: Session) {
+  const paused = (state.pausedSessions ?? []).filter(s => s.id !== next.id && s.id !== state.session?.id && !s.done);
+  if (state.session && !state.session.done && state.session.id !== next.id) paused.unshift(state.session);
+  state.pausedSessions = paused;
+  state.session = next;
 }

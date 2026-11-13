@@ -23,10 +23,10 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
     <header className="page-head"><h1>Statistik</h1></header>
 
     <div className="stat-grid">
-      <div className="stat-tile"><span className="flame" data-on={current.days > 0}><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong><span>Serie</span></div>
-      <div className="stat-tile"><Icon kind="cards" /><strong>{summary.cards}</strong><span>Karten</span></div>
-      <div className="stat-tile"><Icon kind="sparkle" /><strong>{summary.secured}</strong><span>Gelernt</span></div>
-      <div className="stat-tile"><Icon kind="target" /><strong>{accuracy === null ? "–" : accuracy + "%"}</strong><span>Richtig</span></div>
+      <div className="stat-tile" aria-label={current.days + " Tage Serie"} title="Serie"><span className="flame" data-on={current.days > 0}><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong></div>
+      <div className="stat-tile" aria-label={summary.cards + " Karten bearbeitet"} title="Bearbeitete Karten"><Icon kind="cards" /><strong>{summary.cards}</strong></div>
+      <div className="stat-tile" aria-label={summary.secured + " Karten gelernt"} title="Gelernte Karten"><Icon kind="sparkle" /><strong>{summary.secured}</strong></div>
+      <div className="stat-tile" aria-label={accuracy === null ? "Noch keine bewerteten Antworten" : accuracy + " Prozent richtig"} title="Richtige Antworten"><Icon kind="target" /><strong>{accuracy === null ? "–" : accuracy + "%"}</strong></div>
     </div>
 
     <section className="panel flow" aria-labelledby="week-title">
@@ -43,7 +43,7 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
 
     <SubjectLevels workspace={workspace} />
 
-    {decks.length > 0 && <section aria-labelledby="mastery"><div className="section-head"><h2 id="mastery">Sets</h2></div>
+    {decks.length > 0 && <section aria-labelledby="mastery"><div className="section-head"><h2 id="mastery" aria-label="Sets"><Icon kind="library" /><span className="sr-only">Sets</span></h2></div>
       <ul className="mastery-list">{decks.map(({ deck, share }) => <li key={deck.id}><MasteryRing share={share} /><span>{deck.title}</span></li>)}</ul>
     </section>}
 

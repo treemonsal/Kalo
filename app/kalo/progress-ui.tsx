@@ -67,9 +67,9 @@ export function NextStepActions({ step, goalReached, onStep, onDone }: { step: S
 export function GoalBanner({ workspace, now }: { workspace: Workspace; now: number }) {
   const goal = goalOf(workspace);
   const today = dayStats(workspace, dayOf(now));
-  if (today.points < goal) return <p className="goal-line"><GoalRing points={today.points} goal={goal} size={36} /> Noch {goal - today.points} bis zum Tagesziel</p>;
+  if (today.points < goal) return <p className="goal-line" aria-label={goal - today.points + " Punkte bis zum Tagesziel"}><GoalRing points={today.points} goal={goal} size={36} /></p>;
   const current = streak(workspace, now);
-  return <p className="goal-line done"><GoalRing points={today.points} goal={goal} size={36} /> Tagesziel erreicht · Serie {current.days} {current.days === 1 ? "Tag" : "Tage"}</p>;
+  return <p className="goal-line done" aria-label={"Tagesziel erreicht, " + current.days + " Tage Serie"}><GoalRing points={today.points} goal={goal} size={36} /><Icon kind="flame" filled />{current.days}</p>;
 }
 
 /** Own picture, or the first letter of the name without one. */
@@ -96,12 +96,12 @@ export function SubjectLevels({ workspace }: { workspace: Workspace }) {
   const list = levels(workspace);
   if (!list.length) return null;
   return <section aria-labelledby="subjects">
-    <div className="section-head"><h2 id="subjects">Deine Fächer</h2></div>
+    <div className="section-head"><h2 id="subjects">Fächer</h2></div>
     <div className="levels">{list.map(item => <div className="level-card" key={item.subject}>
       <span className="level-badge" aria-hidden="true">{item.level}</span>
       <div><strong>{item.subject}</strong>
         <span className="tile-progress"><span className="meter"><i style={{ width: item.progress * 100 + "%" }} /></span>
-          <span>{item.toNext === null ? "Höchste Stufe" : "Stufe " + (item.level + 1) + " in " + item.toNext}</span></span></div>
+          <span aria-label={item.toNext === null ? "Höchste Stufe" : item.toNext + " bis Stufe " + (item.level + 1)}>{item.toNext === null ? <Icon kind="check" size="s" /> : item.toNext}</span></span></div>
       <span className="sr-only">Stufe {item.level}, {item.secure} Karten sitzen</span>
     </div>)}</div>
   </section>;

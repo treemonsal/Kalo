@@ -3,6 +3,7 @@ import { ConflictError, actionShape, apply, deckDigest, deckInput, empty, type C
 import type { PushSettings } from "./push.ts";
 import { friendSummaries, notice, publicDuel, runSocial, socialShape, type Duel, type FriendRef, type Share } from "./social.ts";
 import { isDurableAction } from "./learning-sync.ts";
+import { explainPair } from "./explanations.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
 type Selection = { token: string; deckId: string; title: string; cards: Card[]; expires: number };
@@ -235,6 +236,22 @@ function change(account: Account, action: Mutation, now: number) {
     if (action.type === "restore") account.selections = [];
   }
   return undefined;
+}
+
+/** A read initiated from the current card. Provider URLs and card content are selected on the server. */
+export async function explainApi(req: Request, store: AccountStore, lookup: (url: string, init?: RequestInit) => Promise<Response> = fetch) {
+  const owner = ownerOf(req);
+  if (!owner) return json({ error: "Melde dich mit ChatGPT an." }, 401);
+  if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
+  if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);
+  try {
+    const input = z.object({ deckId: key, cardId: key }).safeParse(await body(req));
+    if (!input.success) return json({ error: "Ungültige Karte." }, 400);
+    const account = await store.read(owner);
+    const card = account.workspace.decks.find(d => d.id === input.data.deckId)?.cards.find(c => c.id === input.data.cardId);
+    if (!card) return json({ error: "Diese Karte wurde nicht gefunden." }, 404);
+    return json(await explainPair(card.front, card.back, lookup));
+  } catch { return json({ error: "Die Erklärung konnte nicht geladen werden." }, 400); }
 }
 
 export async function api(req: Request, store: AccountStore, now = Date.now(), options: { pushKey?: string } = {}) {

@@ -22,6 +22,47 @@ function submit(state: Workspace, answer: string, self?: boolean) {
   return apply(state, { type: "answer", sessionId: current.id, cursor: current.cursor, round: current.round, answer, self }, now);
 }
 
+test("unterbrochene Runden bleiben nach Wechsel und Sicherung an derselben Frage", () => {
+  const { state, deck } = setup();
+  let s = apply(state, { type: "start", deckId: deck.id, mode: "learn", direction: "front", filter: "all" }, now);
+  s = submit(s, deck.cards[0].back);
+  const paused = structuredClone(s.session);
+  s = apply(s, { type: "start", deckId: deck.id, mode: "cram", direction: "back", filter: "all" }, now);
+  const second = structuredClone(s.session);
+  assert.ok(s.pausedSessions?.some(item => item.id === paused?.id));
+  s = apply(empty(), { type: "restore", data: JSON.parse(JSON.stringify(s)) }, now);
+  s = apply(s, { type: "resumeSession", sessionId: paused!.id }, now);
+  assert.deepEqual(s.session, paused);
+  assert.equal(question(s)?.prompt, "Frage 1");
+  assert.ok(s.pausedSessions?.some(item => item.id === second?.id));
+  assert.equal(s.pausedSessions?.some(item => item.id === paused?.id), false);
+});
+
+test("gezieltes Fortsetzen speichert die aktive Runde und verwirft keine Bewertung", () => {
+  const { state, deck } = setup();
+  let s = apply(state, { type: "start", deckId: deck.id, mode: "cram", direction: "front", filter: "all" }, now);
+  s = submit(s, deck.cards[0].back);
+  const id = s.session!.id;
+  s = apply(s, { type: "start", deckId: deck.id, mode: "learn", direction: "back", filter: "all" }, now);
+  const progress = structuredClone(s.progress);
+  s = apply(s, { type: "resumeSession", sessionId: id }, now);
+  assert.equal(s.session?.cursor, 1);
+  assert.equal(s.session?.correct, 1);
+  assert.deepEqual(s.progress, progress);
+  assert.throws(() => apply(s, { type: "resumeSession", sessionId: crypto.randomUUID() }, now));
+});
+
+test("Setänderungen und Löschen entfernen nur die betroffenen unterbrochenen Runden", () => {
+  const { state, deck } = setup();
+  let s = apply(state, { type: "start", deckId: deck.id, mode: "cram", direction: "front", filter: "all" }, now);
+  s = apply(s, { type: "start", deckId: deck.id, mode: "learn", direction: "back", filter: "all" }, now);
+  const edited = apply(s, { type: "save", deckId: deck.id, title: deck.title, cards: deck.cards.map((c, i) => ({ ...c, back: i ? c.back : "Neu" })) }, now);
+  assert.equal(edited.pausedSessions?.length, 0);
+  const deleted = apply(s, { type: "delete", deckId: deck.id }, now);
+  assert.equal(deleted.pausedSessions?.length, 0);
+  assert.doesNotThrow(() => apply(empty(), { type: "restore", data: deleted }, now));
+});
+
 test("importiert eine vorhandene Quizlet Datei und meldet kaputte Zeilen", () => {
   const text = process.env.KALO_QUIZLET_FIXTURE
     ? readFileSync(process.env.KALO_QUIZLET_FIXTURE, "utf8")

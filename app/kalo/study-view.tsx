@@ -160,12 +160,12 @@ function Frame({ zone, actions }: { zone: ReactNode; actions: ReactNode }) {
 }
 
 function NextButton({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
-  return <button className="button primary" disabled={disabled} autoFocus={finePointer()} onClick={onClick}>Weiter <Icon kind="forward" /></button>;
+  return <button className="button primary" disabled={disabled} autoFocus={finePointer()} aria-label="Weiter" onClick={onClick}><Icon kind="forward" /></button>;
 }
 
 function CorrectAnswer({ submitted, answer, mastered }: { submitted: string; answer: string; mastered?: boolean }) {
   return <div className="answer-box" data-result="correct">
-    <span className="answer-label"><Icon kind="check" /> Richtig{mastered && <span className="mastered-stamp"><Icon kind="sparkle" filled /> Gemeistert</span>}</span>
+    <span className="answer-label"><Icon kind="check" /><span className="sr-only">Richtig</span>{mastered && <span className="mastered-stamp" aria-label="Gemeistert"><Icon kind="sparkle" filled /></span>}</span>
     <p data-size={textSize(submitted)}>{submitted}</p>
     {normal(submitted) !== normal(answer) && <p className="answer-note">Musterantwort: {answer}</p>}
   </div>;
@@ -187,8 +187,8 @@ function Choices({ q, shown, busy, onPick, onNext }: { q: Question; shown: Resul
         <span data-size={textSize(option)}>{option}</span>
       </button>;
     })}</div>}
-    actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")}>{shown.correct ? "Richtig" : "Noch nicht ganz"}
-      {shown.mastered && <span className="mastered-stamp"><Icon kind="sparkle" filled /> Gemeistert</span>}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
+    actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")} aria-label={shown.correct ? "Richtig" : "Noch nicht ganz"}><Icon kind={shown.correct ? "check" : "close"} />
+      {shown.mastered && <span className="mastered-stamp" aria-label="Gemeistert"><Icon kind="sparkle" filled /></span>}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
       : <><span /><span /></>} />;
 }
 
@@ -228,11 +228,11 @@ function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
 
   if (q.kind === "write") return <Frame
     zone={<>
-      <div className="answer-box" data-result="incorrect"><span className="answer-label"><Icon kind="close" /> Deine Antwort</span><p data-size={textSize(answer)}>{answer.trim() || "Keine Antwort"}</p></div>
-      <div className="answer-box" data-result="correct"><span className="answer-label"><Icon kind="check" /> Richtig wäre</span><p data-size={textSize(q.answer)}>{q.answer}</p></div>
+      <div className="answer-box" data-result="incorrect"><span className="answer-label"><Icon kind="close" /><span className="sr-only">Deine Antwort</span></span><p data-size={textSize(answer)}>{answer.trim() || "Keine Antwort"}</p></div>
+      <div className="answer-box" data-result="correct"><span className="answer-label"><Icon kind="check" /><span className="sr-only">Musterantwort</span></span><p data-size={textSize(q.answer)}>{q.answer}</p></div>
     </>}
     actions={<>{answer.trim() ? <button className="button" disabled={busy} onClick={() => void submit(answer, true, false)}>Sinngemäss richtig</button> : <span />}
-      <button className="button primary" disabled={busy} autoFocus={finePointer()} onClick={() => void submit(answer, false, false)}>Weiter <Icon kind="forward" /></button></>} />;
+      <button className="button primary" disabled={busy} autoFocus={finePointer()} aria-label="Weiter" onClick={() => void submit(answer, false, false)}><Icon kind="forward" /></button></>} />;
 
   if (phase === "input") return <Frame
     zone={<button type="button" className="answer-box placeholder" onClick={() => setPhase("revealed")}><Icon kind="eye" size="l" /><span>Tippen zum Aufdecken</span></button>}

@@ -953,11 +953,9 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 
 /* Due cards have a clear call to action, distinct from errors and successes. */
 .due-section { margin-bottom: var(--space-5); }
-.due-alert { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-4); border: 1.5px solid var(--again-line); border-radius: var(--radius-surface); background: var(--again-bg); color: var(--again-ink); text-align: left; box-shadow: 0 3px 14px color-mix(in srgb, var(--mark) 8%, transparent); }
-.due-alert-count { display: grid; place-items: center; min-width: 52px; min-height: 52px; padding: 0 10px; border-radius: 14px; background: var(--mark); color: #0a092d; font-size: 1.5rem; font-weight: 780; font-variant-numeric: tabular-nums; }
-.due-alert-copy { display: grid; gap: 2px; flex: 1; }
-.due-alert-copy strong { font-size: var(--fs-headline); }
-.due-alert-copy > span { font-size: var(--fs-footnote); }
+.due-alert { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper); color: var(--ink); text-align: left; }
+.due-alert-count { color: var(--mark); font-size: 2.5rem; line-height: 1.1; letter-spacing: -.04em; font-weight: 730; font-variant-numeric: tabular-nums; }
+.due-alert-copy { flex: 1; color: var(--muted); font-size: var(--fs-callout); }
 .due-section > details { padding-inline: var(--space-2); }
 .due-alert:active:not(:disabled) { transform: scale(.985); }
 .due-alert { touch-action: manipulation; transition: transform var(--t-press) ease, box-shadow var(--t-quick) ease; }
@@ -983,16 +981,43 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 /* A one-card handoff, presented as a dismissible bottom sheet. */
 .card-explain-sheet { position: fixed; inset: auto 0 0; width: min(100%, 560px); max-width: 100%; max-height: min(80dvh, 600px); margin: 0 auto; padding: 0 0 max(20px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-bottom: 0; border-radius: 26px 26px 0 0; background: var(--paper); color: var(--ink); box-shadow: 0 -16px 50px #00000030; overflow-y: auto; overscroll-behavior: contain; animation: explain-in 300ms var(--ease-settle); transition: transform 240ms var(--ease-settle); }
 .card-explain-sheet::backdrop { background: #00000065; animation: fade-in 200ms ease; }
+.card-explain-sheet[open] { display: flex; flex-direction: column; overflow: hidden; }
+.card-explain-sheet .sheet-grabber { flex: none; }
 .card-explain-sheet[data-dragging="true"] { animation: none; transition: none; }
 .card-explain-sheet[data-closing="true"] { animation: explain-out 220ms var(--ease-exit) forwards; }
 .card-explain-sheet[data-closing="true"]::backdrop { animation: fade-out 220ms ease forwards; }
 .sheet-grabber { display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: transparent; touch-action: none; cursor: grab; }
 .sheet-grabber > span { width: 36px; height: 4px; border-radius: 4px; background: var(--line-strong); }
-.explain-body { display: grid; gap: var(--space-4); padding: 0 var(--space-5); }
-.explain-body h2 { margin: 0; font-size: var(--fs-title); }
+.explain-heading { flex: none; margin: 0; padding: 0 var(--space-5) var(--space-3); }
+.explain-heading h2 { margin: 0; font-size: var(--fs-title); }
+.explain-body { display: grid; gap: var(--space-4); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--space-5) var(--space-3); }
 .explain-body .section-head { margin: 0; }
-.explain-card { padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--soft); max-height: 28dvh; overflow-y: auto; overflow-wrap: anywhere; }
-.explain-card p { margin: var(--space-2) 0 0; }
+.explain-terms { display: grid; gap: var(--space-5); overflow-wrap: anywhere; }
+.explain-term h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: var(--fs-title); letter-spacing: -.02em; }
+.explain-term h3 small { color: var(--faint); font-size: var(--fs-caption); font-weight: 600; letter-spacing: .03em; }
+.explain-term ol { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.explain-term li p { margin: 0; line-height: 1.5; }
+.explain-term blockquote { margin: var(--space-2) 0 0; padding-left: var(--space-3); border-left: 2px solid var(--line); color: var(--muted); font-size: var(--fs-footnote); line-height: 1.5; }
+.explain-term blockquote span { display: block; margin-top: 3px; font-style: italic; }
+.explain-source { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); font-size: var(--fs-caption); }
+.explain-source a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.explain-missing { margin: 0; color: var(--muted); font-size: var(--fs-footnote); }
+.explain-license { color: var(--faint); font-size: var(--fs-caption); justify-self: start; }
+.paused-rounds { margin-bottom: var(--space-4); color: var(--muted); }
+.paused-rounds > summary { gap: var(--space-2); }
+.paused-rounds ul { list-style: none; margin: 0; padding: 0; }
+.paused-rounds li button { display: flex; align-items: center; width: 100%; gap: var(--space-3); padding: var(--space-3) 0; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; }
+.paused-rounds li button > span { display: grid; flex: 1; min-width: 0; }
+.paused-rounds li button > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: var(--fs-footnote); }
+.paused-rounds small { font-variant-numeric: tabular-nums; color: var(--muted); }
+.explain-loading { display: grid; gap: var(--space-2); padding-block: var(--space-3); }
+.explain-loading span { display: block; height: 14px; border-radius: 5px; background: var(--soft); }
+.explain-loading span:last-child { width: 65%; }
+.explain-actions { display: grid; flex: none; gap: var(--space-2); padding: var(--space-3) var(--space-5) 0; border-top: 1px solid var(--line); }
+.explain-more { margin-top: var(--space-2); }
+.explain-more summary { display: inline-flex; align-items: center; gap: 3px; min-height: 32px; list-style: none; color: var(--muted); font-size: var(--fs-footnote); }
+.explain-more summary::-webkit-details-marker { display: none; }
+.explain-more[open] summary .icon-svg { transform: rotate(90deg); }
 .explain-hint { margin: 0; font-size: var(--fs-footnote); text-align: center; }
 @keyframes explain-in { from { opacity: .7; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
 @keyframes explain-out { to { opacity: 0; transform: translateY(100%); } }

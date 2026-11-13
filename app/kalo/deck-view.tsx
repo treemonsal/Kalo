@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace } from "../../lib/learning";
+import { dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
 import { examIn } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
-import { plural } from "./types";
 
 type Props = {
   workspace: Workspace; deck: Deck; time: number; busy: boolean;
@@ -12,6 +11,7 @@ type Props = {
   onDirection: (value: Direction) => void; onFilter: (value: Filter) => void; onWriting: (value: boolean) => void;
   onHome: () => void; backLabel: string; onEdit: () => void; onCards: () => void; onStart: (mode: "learn" | "cram" | "review") => void;
   onChat: () => void; onResume?: () => void; onStar: (cardId: string, starred: boolean) => void;
+  onResumeSession: (session: Session) => void;
   shareToken?: string; onShare: () => void; onDuel: () => void;
 };
 
@@ -45,14 +45,15 @@ export default function DeckView(props: Props) {
   return <>
     <div className="view-bar">
       <button className="text-button" aria-label={"Zurück zu " + props.backLabel} onClick={props.onHome}><Icon kind="back" /></button>
-      <button className="text-button" onClick={props.onEdit}><Icon kind="edit" /> Bearbeiten</button>
+      <button className="icon-button" onClick={props.onEdit} aria-label="Set bearbeiten"><Icon kind="edit" /></button>
     </div>
     <header className="page-head">
       <div>
         <h1>{deck.title}</h1>
         <div className="deck-summary">
           <span className="meter"><i style={{ width: (done / Math.max(1, deck.cards.length)) * 100 + "%" }} /></span>
-          <span>{done} von {plural(deck.cards.length, "Karte", "Karten")} sitzen{due ? " · " + due + " fällig" : ""}</span>
+          <span aria-label={done + " von " + deck.cards.length + " Karten gelernt"}>{done}/{deck.cards.length}</span>
+          {due > 0 && <span className="due-badge" aria-label={due + " fällig"}><Icon kind="repeat" size="s" />{due}</span>}
         </div>
       </div>
     </header>
@@ -61,6 +62,17 @@ export default function DeckView(props: Props) {
       <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Weitermachen</strong></span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
     </button>}
+
+    {workspace.pausedSessions?.some(s => s.deckId === deck.id) && <details className="advanced paused-rounds">
+      <summary aria-label="Unterbrochene Lernrunden"><Icon kind="clock" size="s" /> {workspace.pausedSessions.filter(s => s.deckId === deck.id).length}</summary>
+      <ul>{workspace.pausedSessions.filter(s => s.deckId === deck.id).map(s => <li key={s.id}>
+        <button onClick={() => props.onResumeSession(s)} disabled={busy}>
+          <Icon kind={s.mode === "learn" ? "target" : s.mode === "cram" ? "bolt" : "repeat"} />
+          <span><strong>{s.mode === "learn" ? "Lernen" : s.mode === "cram" ? "Pauken" : "Wiederholen"}</strong>
+            <span>{deck.cards.find(c => c.id === s.queue[s.cursor])?.[s.direction]}</span></span>
+          <small>{s.cursor + 1}/{s.queue.length}</small><Icon kind="forward" size="s" />
+        </button></li>)}</ul>
+    </details>}
 
     <div className="study-modes">
       {modes.map(item => <button key={item.mode} className="mode" data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
@@ -88,7 +100,7 @@ export default function DeckView(props: Props) {
     {!visible.length && <p className="quiet-line"><Icon kind="alert" /> In dieser Auswahl sind keine Karten. Wähle unter Lernoptionen eine andere Auswahl.</p>}
 
     <section className="set-list" aria-labelledby="cards-title">
-      <div className="section-head"><h2 id="cards-title">Karten <span className="count">{deck.cards.length}</span></h2></div>
+      <div className="section-head"><h2 id="cards-title" aria-label={deck.cards.length + " Karten"}><Icon kind="cards" /><span className="count">{deck.cards.length}</span></h2></div>
       <ul className="panel card-rows">{deck.cards.map(item => <li key={item.id}>
         <span className="row-front">{item.front}</span><span className="row-back">{item.back}</span>
         <button className="icon-button star" aria-label={(item.starred ? "Markierung entfernen: " : "Markieren: ") + item.front} aria-pressed={item.starred}
