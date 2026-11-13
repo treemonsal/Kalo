@@ -35,7 +35,7 @@ export default function ProfileView({ workspace, now, profile, friends, dueByDec
       <div key={friend.id} className="friend-tile"><Avatar name={friend.name} picture={friend.picture} size={44} /><span>{friend.name}</span><span className="friend-streak" aria-label={friend.shared + " Tage gemeinsam"} data-active={friend.shared > 0}><Icon kind="flame" filled={friend.shared > 0} size="s" />{friend.shared}</span></div>
     )}</div></section>}
     <section aria-labelledby="sets" className="sets">
-      <div className="section-head"><h2 id="sets">Meine Sets</h2>
+      <div className="section-head"><h2 id="sets" aria-label="Meine Sets"><Icon kind="library" /><span className="count">{workspace.decks.length}</span></h2>
         {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Sets durchsuchen</span><input type="search" value={search} placeholder="Suchen" onChange={event => setSearch(event.target.value)} /></label>}
       </div>
       {decks.length ? <div className="decks">{decks.map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>

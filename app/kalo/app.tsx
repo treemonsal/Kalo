@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
-import { dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode } from "../../lib/learning";
+import { dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
 import type { FriendSummary } from "../../lib/social";
 import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
@@ -83,7 +83,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [duelToken, setDuelToken] = useState("");
   const [deckOrigin, setDeckOrigin] = useState<"home" | "profile">("home");
   const [celebrate, setCelebrate] = useState<{ previous: number; streak: number } | null>(null);
-  const [explain, setExplain] = useState<{ card: Card; direction: Direction } | null>(null);
+  const [explain, setExplain] = useState<{ deckId: string; card: Card; direction: Direction } | null>(null);
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
   const outbox = useRef<DurableQueue<MutateResult> | null>(null);
   const dataRef = useRef<Data | null>(null);
@@ -437,6 +437,13 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     navigate("study");
   }
 
+  async function resumeSaved(saved: Session) {
+    const result = await mutate({ type: "resumeSession", sessionId: saved.id });
+    if (!result?.workspace.session) return;
+    setDeckId(saved.deckId); setDirection(saved.direction); setFilter(saved.filter); setWriting(saved.writing);
+    bookmarkStudy(saved.id); navigate("study");
+  }
+
   async function start(mode: Mode, options?: { target: Deck; side: Direction; dueOnly?: true }, override?: Filter) {
     const target = options?.target ?? deck;
     if (!target) return;
@@ -448,7 +455,6 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         resume();
         return;
       }
-      if (!await confirm({ title: "Neue Runde starten?", message: "Deine offene Runde «" + modeName[session.mode] + "» wird beendet.", confirm: "Neue Runde" })) return;
     }
     const result = await mutate({
       type: "start", mode, deckId: target.id, direction: side,
@@ -505,7 +511,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
   function explainCard(item: Deck, cardId: string) {
     const card = item.cards.find(card => card.id === cardId);
-    if (card) setExplain({ card, direction });
+    if (card) setExplain({ deckId: item.id, card, direction });
   }
 
   async function copy(text: string) {
@@ -674,7 +680,9 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={writingBusy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
           onHome={() => navigate(deckOrigin)} backLabel={deckOrigin === "profile" ? "Profil" : "Home"} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
-          onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume : undefined}
+          onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume
+            : workspace?.pausedSessions?.some(s => s.deckId === deck.id) ? () => void resumeSaved(workspace.pausedSessions!.find(s => s.deckId === deck.id)!) : undefined}
+          onResumeSession={saved => void resumeSaved(saved)}
           onStar={(cardId, starred) => void mutate({ type: "star", deckId: deck.id, cardId, starred }, { queue: true })}
           shareToken={data?.published?.[deck.id]}
           onShare={() => void publish(deck)} onDuel={() => void createDuel(deck)} />}
@@ -735,7 +743,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       </div>
       {confirmDialog}
       {celebrate && <StreakCelebration previous={celebrate.previous} days={celebrate.streak} onClose={() => setCelebrate(null)} />}
-      {explain && <CardExplainSheet card={explain.card} direction={explain.direction} chatUrl={safeChatUrl(chatLink)} onClose={() => setExplain(null)} />}
+      {explain && <CardExplainSheet key={explain.card.id} deckId={explain.deckId} card={explain.card} direction={explain.direction} chatUrl={safeChatUrl(chatLink)} onClose={() => setExplain(null)} />}
     </div>
   );
 }
