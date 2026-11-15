@@ -1,6 +1,6 @@
 import { appearance, appearanceCookie, type Appearance } from "../../lib/appearance";
 
-const DARK = "#0a092d";
+const DARK = "#161513";
 const LIGHT = "#faf9f5";
 
 export function syncThemeColor() {
