@@ -9,7 +9,8 @@ export default async function Home() {
   const user = await getChatGPTUser();
   if (!user) return (
     <main className="sign-in">
-      <span className="eyebrow">Deine Lernbibliothek</span>
+      {/* eslint-disable-next-line @next/next/no-img-element -- kleines SVG, keine Optimierung nötig */}
+      <img className="sign-in-mark" src="/kalo-mark.svg" width="64" height="64" alt="" />
       <h1>Kalo</h1>
       <p>Deine Karteikarten und dein Lernstand sind mit deinem ChatGPT Konto verbunden.</p>
       <a className="primary button" href={chatGPTSignInPath("/")} target="_top">Mit ChatGPT anmelden</a>

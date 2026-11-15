@@ -632,7 +632,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
       <header className="topbar">
         <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">
-          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="white" opacity=".3" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg> Kalo
+          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="#d97757" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg> Kalo
         </button>
         <div className="topbar-right">
           {data && (sync.pending > 0 || busy) && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
