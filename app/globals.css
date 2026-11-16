@@ -88,6 +88,11 @@ body {
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   transition: background-color var(--t-view) ease, color var(--t-view) ease;
 }
+/* Wie eine App: kein Scrollbalken am Rand und kein Markieren, ausser in Eingabefeldern. */
+html, * { scrollbar-width: none; }
+html::-webkit-scrollbar, *::-webkit-scrollbar { display: none; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+input, textarea, select, [contenteditable="true"] { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 button, input, textarea, select { font: inherit; color: inherit; letter-spacing: inherit; }
 button, a, input, textarea, select, summary, label { -webkit-tap-highlight-color: transparent; }
 button, summary { cursor: pointer; }
