@@ -11,6 +11,7 @@ type Props = {
 };
 
 export default function EditorView({ editor, busy, subjects, onChange, onSave, onBack, onImport, onImportNew, onChat, onDiscard, onDelete }: Props) {
+  const isNew = !editor.deckId && !editor.draftId;
   const fresh = !editor.deckId && !editor.draftId && editor.cards.every(card => !card.front.trim() && !card.back.trim());
   const update = (rowId: string, value: Partial<EditCard>) =>
     onChange(current => ({ ...current, cards: current.cards.map(c => c.row === rowId ? { ...c, ...value } : c) }));
@@ -24,11 +25,15 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
   return <form onSubmit={onSave}>
     <div className="view-bar"><button type="button" className="icon-button" aria-label="Zurück zum Set" onClick={onBack}><Icon kind="back" /></button></div>
     <header className="page-head editor-heading"><h1>{editor.draftId ? "Entwurf prüfen" : editor.deckId ? "Set bearbeiten" : "Neues Set"}</h1>
-      <div className="editor-tools">
+      {!isNew && <div className="editor-tools">
         <button type="button" className="icon-button" title="Mit ChatGPT erstellen" aria-label="Mit ChatGPT erstellen" disabled={busy} onClick={onChat}><Icon kind="chat" /></button>
-        <button type="button" className="icon-button" title="Karten importieren" aria-label="Karten importieren" disabled={busy} onClick={fresh ? onImportNew : onImport}><Icon kind="import" /></button>
-      </div>
+        <button type="button" className="icon-button" title="Karten importieren" aria-label="Karten importieren" disabled={busy} onClick={onImport}><Icon kind="import" /></button>
+      </div>}
     </header>
+    {isNew && <div className="actions social-actions">
+      <button type="button" className="text-button" aria-label="Mit ChatGPT erstellen" disabled={busy} onClick={onChat}><Icon kind="chat" /> Mit ChatGPT</button>
+      <button type="button" className="text-button" aria-label="Karten importieren" disabled={busy} onClick={fresh ? onImportNew : onImport}><Icon kind="import" /> Importieren</button>
+    </div>}
     <div className="panel editor-title flow"><label>Setname<input required maxLength={120} placeholder="Zum Beispiel Englisch Wortschatz" value={editor.title} onChange={event => onChange(current => ({ ...current, title: event.target.value }))} /></label>
       <div className="meta-panel">
         <label><span className="label-icon"><Icon kind="calendar" size="s" /> Prüfung</span><input type="date" value={editor.examDate ?? ""} onChange={event => onChange(current => ({ ...current, examDate: event.target.value }))} /></label>
