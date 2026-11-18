@@ -429,7 +429,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .card-under .card-copy { opacity: calc(.35 + .65 * var(--progress)); }
 .flashcard {
   position: relative; z-index: 1; display: grid; width: 100%; padding: 0; border: 0; background: none; color: var(--ink); text-align: left;
-  perspective: 1600px; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  perspective: 1600px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   transform: translate3d(var(--drag, 0px), 0, 0) rotate(var(--tilt, 0deg)); transform-origin: 50% 110%; will-change: transform;
 }
 .card-stage[data-swapping] .flashcard { visibility: hidden; }
@@ -454,6 +454,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 }
 .flashcard .card-copy { opacity: calc(1 - max(var(--known), var(--again)) * .82); }
 .card-copy[data-overflow="true"] { -webkit-mask-image: linear-gradient(#000 calc(100% - 36px), transparent); mask-image: linear-gradient(#000 calc(100% - 36px), transparent); padding-bottom: 28px; align-self: stretch; }
+.flashcard[data-scrollable="true"] { touch-action: pan-y pinch-zoom; }
 .card-face:has(.card-copy[data-overflow="true"]) .card-hint::before { content: "Scrollen für mehr · "; }
 /* Long cards get smaller type, so they stay inside the card. */
 [data-size="xl"] { font-size: clamp(1.6rem, 1.2rem + 2vw, 2.25rem); line-height: 1.15; }
@@ -476,8 +477,9 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .rating-again { color: var(--again-ink); }
 .swipe-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
 .swipe-actions .button { min-height: 52px; }
-.button.rate-known { color: var(--known-ink); border-color: var(--known-line); background: var(--known-bg); }
-.button.rate-again { color: var(--again-ink); border-color: var(--again-line); background: var(--again-bg); }
+.button.rate-known, .button.rate-again { border: 0; background: transparent; box-shadow: none; }
+.button.rate-known { color: var(--known-ink); }
+.button.rate-again { color: var(--again-ink); }
 .card-controls { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .finish, .milestone { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-6); }
 .finish .actions, .milestone .actions { margin-top: var(--space-2); }
@@ -485,12 +487,26 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .finish-mark .icon-svg { width: 40px; height: 40px; }
 .finish-mark.open { color: var(--accent); }
 .focus-dialog {
-  width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; border: 0; overflow: auto; color: var(--ink); background: var(--page);
+  position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; border: 0;
+  overflow: hidden; overscroll-behavior: none; color: var(--ink); background: var(--page);
   padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left));
 }
 .focus-dialog[open] { animation: fade-in var(--t-base) ease; }
-.focus-dialog .card-viewer { width: min(100%, 860px); }
-.focus-dialog .card-stage { --card-height: clamp(240px, calc(100dvh - 300px), 720px); }
+.focus-dialog .card-viewer { display: flex; flex-direction: column; width: min(100%, 860px); height: 100%; min-height: 0; }
+.focus-dialog .card-viewer > :not(.card-stage, .finish) { flex-shrink: 0; }
+.focus-dialog .card-viewer > .meter { flex: 0 0 4px; }
+.focus-dialog .card-stage { --card-height: 100%; flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.focus-dialog :is(.card-under, .flashcard, .card-faces, .card-face) { height: 100%; min-height: 0; }
+.focus-dialog .card-face { grid-template-rows: auto minmax(0, 1fr) auto; }
+.focus-dialog .card-copy { min-height: 0; }
+.focus-dialog .finish { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+@media (max-height: 600px) {
+  .focus-dialog .card-toolbar, .focus-dialog .card-viewer > .meter { margin-bottom: var(--space-2); }
+  .focus-dialog .swipe-status { min-height: 32px; margin-block: var(--space-1); font-size: var(--fs-footnote); }
+  .focus-dialog .swipe-actions .button { min-height: 44px; padding: 8px 10px; }
+  .focus-dialog .card-controls { margin-top: var(--space-1); }
+  .focus-dialog .card-face { padding: var(--space-3) var(--space-4); gap: var(--space-2); }
+}
 
 /* Study: question, answer zone and main action keep their places */
 .study-progress { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); color: var(--muted); font-size: var(--fs-footnote); font-variant-numeric: tabular-nums; }

@@ -1,5 +1,7 @@
 # Anforderungsprüfung am 13.11.2026
 
+Nachtrag vom 18.11.2026: Die folgenden Angaben dokumentieren den damaligen Stand. Die späteren Design-, Vollbild- und Speicheränderungen sind im [aktuellen Sites-Übergabeprotokoll](2026-11-18-sites-handoff.md) beschrieben. Bei abweichenden Gestaltungsangaben gilt der neuere Stand.
+
 Die letzte konkrete Anweisung hat Vorrang: Home und Profil gemeinsam links, Plus separat rechts; fällige Karten ruhig mit grosser oranger Zahl. Frühere Wünsche nach einer ChatGPT Taste in der Mitte oder einer stärkeren Alarmfläche wurden dadurch ersetzt.
 
 Referenz der Prüfung: Funktionsstand V22, Sites Quellcommit `b4add9c5bc252611136987e958c5a4f28de6201c`, GitLab main `f918fa901fb5373731356a1df840d15d4adc7d60`. Alle 111 Quelldateien und Dateimodi sind identisch, der lokale Arbeitsstand ist sauber. Diese Nachprüfung ergänzt ausschliesslich Dokumentation, keine neue Oberfläche oder Lernlogik.

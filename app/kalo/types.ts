@@ -4,6 +4,7 @@ import type { FriendSummary, PartnerSummary, SocialAction } from "../../lib/soci
 export type Draft = { id: string; title: string; cards: CardInput[]; created: number };
 export type Data = {
   workspace: Workspace; drafts: Draft[]; revision: number;
+  confirmed?: Record<string, number>;
   published?: Record<string, string>; push?: { enabled: boolean; morning: string; evening: string };
   partner?: PartnerSummary | null; pushKey?: string | null;
   friends?: FriendSummary[];
@@ -17,13 +18,13 @@ export type View = "home" | "deck" | "editor" | "import" | "cards" | "study" | "
 export type DuelData = { title: string; ownerName: string; questions: { prompt: string; options: string[]; answer: string }[]; results: { name: string; correct: number; ms: number }[]; played?: boolean };
 export type MutateResult = Data & { error?: string; retryable?: boolean; token?: string; deckId?: string; imports?: number; duel?: DuelData };
 export type MutateOptions = {
-  /** Wait for earlier actions instead of being dropped while one runs (card swipes, undo, stars). */
+  /** Queue explicit server operations behind earlier operations instead of dropping them. */
   queue?: boolean;
   /** The caller shows its own message on failure. */
   silent?: boolean;
   /** Checked right before sending; true skips the request and counts as success. */
   skip?: () => boolean;
-  /** Called in order with the outcome, before the next queued action starts. Status 0 means no connection. */
+  /** Local learning actions succeed after durable storage; other actions wait for the server. Status 0 means no connection. */
   onDone?: (ok: boolean, status: number) => void;
 };
 export type Mutate = (action: Action | Extra, options?: MutateOptions) => Promise<MutateResult | null>;
