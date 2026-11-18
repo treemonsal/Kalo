@@ -39,10 +39,10 @@ export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; no
   const current = streak(workspace, now);
   return <section className="hero compact" aria-label="Heute">
     <button className="hero-goal" onClick={onGoal} aria-label={"Tagesziel ändern, " + today.points + " von " + goal + " Punkten"} title="Tagesziel" data-done={today.points >= goal}>
-      <Icon kind="target" /><strong>{today.points}<span className="metric-goal">/{goal}</span></strong>
+      <Icon kind="target" /><strong>{today.points}<span className="metric-goal">/{goal} Punkte</span></strong>
     </button>
     <div className="hero-streak" data-active={current.days > 0} aria-label={current.days + " Tage Serie"} title="Serie">
-      <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong>
+      <span className="flame"><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}<span className="metric-goal"> {current.days === 1 ? "Tag" : "Tage"}</span></strong>
     </div>
   </section>;
 }
