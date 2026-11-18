@@ -78,7 +78,7 @@ export default function DeckView(props: Props) {
     </details>}
 
     <div className="study-modes">
-      {modes.map(item => <button key={item.mode} className={item.mode === lead ? "mode lead" : "mode"} data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
+      {modes.map(item => <button key={item.mode} className={item.mode === lead ? "mode lead" : "mode"} data-mode={item.mode} data-quiet={item.mode === lead && props.onResume ? true : undefined} disabled={!visible.length || (busy && item.mode !== "cards")}
         onClick={() => item.mode === "cards" ? props.onCards() : props.onStart(item.mode)}>
         <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small className="mode-count">{item.text}</small>
       </button>)}

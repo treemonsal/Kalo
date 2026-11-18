@@ -296,6 +296,7 @@ p { color: var(--muted); }
   border: 1px solid var(--line); border-radius: var(--radius-surface); color: var(--ink); background: var(--paper); box-shadow: var(--shadow-raised); text-align: left;
 }
 .continue-card.compact { box-shadow: var(--shadow-surface); }
+.continue-card.compact .continue-go { width: 40px; height: 40px; border-radius: 50%; color: var(--on-primary); background: var(--primary); }
 .continue-copy { display: grid; flex: 1; gap: 4px; min-width: 0; }
 .continue-copy strong { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
 .continue-card.compact strong { font-size: var(--fs-headline); }
@@ -361,12 +362,15 @@ details > summary { color: var(--ink); font-weight: 600; }
 .mode strong { font-size: var(--fs-headline); font-weight: 600; }
 .mode small { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-footnote); line-height: 1.35; }
 .mode-icon { display: inline-flex; color: var(--accent); }
-/* The lead mode is the one obvious next step: full width, primary colours. */
+/* The lead mode is the one obvious next step: full width, primary colours.
+   An open round ("Weitermachen") outranks it; then the lead keeps its width but not the colour. */
 .study-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.mode.lead { grid-column: 1 / -1; min-height: 72px; grid-template-columns: auto 1fr auto; align-content: center; border-color: transparent; color: var(--on-primary); background: var(--primary); }
-.mode.lead .mode-icon { color: var(--on-primary); }
-.mode.lead small { grid-column: auto; color: inherit; opacity: .72; }
-@media (hover: hover) and (pointer: fine) { button.mode.lead:hover:not(:disabled) { background: var(--primary-hover); border-color: transparent; } }
+.mode.lead { grid-column: 1 / -1; min-height: 72px; grid-template-columns: auto 1fr auto; align-content: center; }
+.mode.lead small { grid-column: auto; }
+.mode.lead:not([data-quiet]) { border-color: transparent; color: var(--on-primary); background: var(--primary); }
+.mode.lead:not([data-quiet]) .mode-icon { color: var(--on-primary); }
+.mode.lead:not([data-quiet]) small { color: inherit; opacity: .72; }
+@media (hover: hover) and (pointer: fine) { button.mode.lead:not([data-quiet]):hover:not(:disabled) { background: var(--primary-hover); border-color: transparent; } }
 .options-panel { padding-block: var(--space-3); }
 .options-panel summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 32px; }
 .summary-value { color: var(--muted); font-size: var(--fs-footnote); font-weight: 500; }
