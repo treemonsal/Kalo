@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Kalo",
+  "short_name": "Kalo",
+  "description": "Deine Karteikarten und Lernrunden.",
+  "lang": "de-CH",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#161513",
+  "theme_color": "#161513",
+  "icons": [
+    {
+      "src": "/kalo-brown-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/kalo-brown-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import { play } from "./sound";
 import { Icon, Key } from "./icons";
 import { finePointer, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
+import { parseStored, readStored, writeStored } from "./storage";
 
 type Session = NonNullable<Workspace["session"]>;
 type Question = NonNullable<ReturnType<typeof question>>;
@@ -59,14 +60,16 @@ function Mastery({ session }: { session: Session }) {
 
 type Props = {
   workspace: Workspace; session: Session; busy: boolean; mutate: Mutate; now: number;
+  draftKey: string;
   onBack: () => void; onStart: (mode: "learn" | "cram", filter?: "mistakes") => void;
   onStep: (step: Step) => void; onHome: () => void;
 };
 
-export default function StudyView({ workspace, session, busy, mutate, now, onBack, onStart, onStep, onHome }: Props) {
+export default function StudyView({ workspace, session, busy, mutate, now, draftKey, onBack, onStart, onStep, onHome }: Props) {
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
   const swipeStart = useRef<number | null>(null);
+  const submitted = useRef("");
   const q = question(workspace);
   const current = positionOf(session);
   const shown = result && (result.to === current || (result.to === null && result.from === current)) ? result : null;
@@ -81,21 +84,30 @@ export default function StudyView({ workspace, session, busy, mutate, now, onBac
   const answered = shown ? Math.min(total, Number(shown.from.split(":")[2]) + 1) : session.done ? total : session.cursor;
 
   async function submit(value: string, self?: boolean, show = true) {
-    if (!q) return;
+    if (!q || submitted.current === current) return false;
+    submitted.current = current;
     const from = current;
     const correct = self ?? (q.kind === "choice" ? value === q.answer : matches(q.card, session.direction, value));
     // Sound and colour on the same frame, before the server answers.
     if (show) { setResult({ q, submitted: value, correct, from, to: null }); play(correct ? (q.gold ? "gold" : "correct") : "wrong"); }
     const wasSecure = secure(workspace, q.card.id, session.direction);
     const saved = await mutate({ type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: value, self });
+    if (!saved) submitted.current = "";
     const mastered = Boolean(saved && correct && !wasSecure && secure(saved.workspace, q.card.id, session.direction));
     const combo = saved?.workspace.session?.combo ?? 0;
     if (mastered) play("mastered");
     else if (correct && combo >= 5 && combo % 5 === 0) play("combo");
-    if (!show) return;
+    if (!show) return Boolean(saved);
     if (saved) setResult(old => old && old.from === from ? { ...old, to: positionOf(saved.workspace.session), mastered } : old);
     else setResult(old => old && old.from === from ? null : old);
+    return Boolean(saved);
   }
+
+  useKeys(Boolean(shown?.to), key => {
+    if (!["Enter", "ArrowRight", " "].includes(key)) return false;
+    setResult(null);
+    return true;
+  });
 
   const header = <>
     <div className="study-top">
@@ -150,8 +162,8 @@ export default function StudyView({ workspace, session, busy, mutate, now, onBac
         ? <Choices q={view} shown={shown} busy={busy} onPick={option => void submit(option)} onNext={() => setResult(null)} />
         : shown ? <Frame zone={<CorrectAnswer submitted={shown.submitted} answer={view.answer} mastered={shown.mastered} />}
             actions={<><span /><NextButton disabled={shown.to === null} onClick={() => setResult(null)} /></>} />
-          : q && <AnswerArea key={"answer:" + current} q={q} busy={busy} direction={session.direction} submit={submit}
-              rate={grade => void mutate({ type: "rate", sessionId: session.id, cursor: session.cursor, grade })} />}
+          : q && <AnswerArea key={"answer:" + current} storageKey={draftKey + ":" + current} q={q} busy={busy} direction={session.direction} submit={submit}
+              rate={async grade => Boolean(await mutate({ type: "rate", sessionId: session.id, cursor: session.cursor, grade }))} />}
     </section></>;
 }
 
@@ -193,15 +205,41 @@ function Choices({ q, shown, busy, onPick, onNext }: { q: Question; shown: Resul
 }
 
 type AnswerProps = {
-  q: Question; busy: boolean; direction: Session["direction"];
-  submit: (value: string, self?: boolean, show?: boolean) => Promise<void>;
-  rate: (grade: 1 | 2 | 3 | 4) => void;
+  q: Question; busy: boolean; direction: Session["direction"]; storageKey: string;
+  submit: (value: string, self?: boolean, show?: boolean) => Promise<boolean>;
+  rate: (grade: 1 | 2 | 3 | 4) => Promise<boolean>;
 };
 
+type AnswerDraft = { answer: string; phase: "input" | "wrong" | "revealed" };
+function isAnswerDraft(value: unknown): value is AnswerDraft {
+  const draft = value as AnswerDraft | null;
+  return typeof draft?.answer === "string" && draft.answer.length <= 3000 && ["input", "wrong", "revealed"].includes(draft.phase);
+}
+
 /** Holds the typed answer and the revealed state. It remounts for every new question. */
-function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
-  const [answer, setAnswer] = useState("");
-  const [phase, setPhase] = useState<"input" | "wrong" | "revealed">("input");
+function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: saveRate }: AnswerProps) {
+  const [draft, setDraft] = useState<AnswerDraft>(() => parseStored(readStored(storageKey), isAnswerDraft) ?? { answer: "", phase: "input" });
+  const currentDraft = useRef(draft);
+  const sending = useRef(false);
+  const { answer, phase } = draft;
+  function update(change: Partial<AnswerDraft>) {
+    const next = { ...currentDraft.current, ...change };
+    currentDraft.current = next; setDraft(next);
+    writeStored(storageKey, JSON.stringify(next));
+  }
+  const setPhase = (phase: AnswerDraft["phase"]) => update({ phase });
+  async function submit(value: string, self?: boolean, show?: boolean) {
+    if (sending.current) return;
+    sending.current = true;
+    if (await saveAnswer(value, self, show)) writeStored(storageKey, null);
+    else sending.current = false;
+  }
+  async function rate(grade: 1 | 2 | 3 | 4) {
+    if (sending.current) return;
+    sending.current = true;
+    if (await saveRate(grade)) writeStored(storageKey, null);
+    else sending.current = false;
+  }
 
   useKeys(phase === "revealed" && q.kind === "rate" && !busy, key => {
     const grade = Number(key);
@@ -219,7 +257,7 @@ function AnswerArea({ q, busy, direction, submit, rate }: AnswerProps) {
     zone={<label className="answer-field"><span className="sr-only">Deine Antwort</span>
       <textarea rows={3} maxLength={3000} value={answer} placeholder="Deine Antwort" autoFocus={finePointer()}
         autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="done"
-        onChange={event => setAnswer(event.target.value)}
+        onChange={event => update({ answer: event.target.value })}
         onKeyDown={event => {
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); check(); }
         }} /></label>}

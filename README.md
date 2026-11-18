@@ -8,6 +8,8 @@ Webapp für Karteikarten, adaptive Lernrunden, Pauken und fällige Wiederholunge
 
 Die gemeinsame Quelle ist [GitLab: hahntim518/kalo](https://gitlab.com/hahntim518/kalo), Branch `main`. GitHub ist nicht mehr die Arbeitsgrundlage. Vor Änderungen den aktuellen Stand von `main` laden und lokale Änderungen erhalten.
 
+Die zuvor nur auf ChatGPT Sites gespeicherten Ergänzungen bis Version 27 sind im [Übergabeprotokoll vom 18.11.2026](docs/2026-11-18-sites-handoff.md) beschrieben: Designauswahl mit bisherigem Design, braunes Logo, direkter Vollbildmodus, lokale Speicherung ohne Wartezeit beim Weiterlernen und zuverlässigere Wischgesten. Dieses Protokoll ergänzt die ältere Anforderungsprüfung und nennt die Dateien und Tests für die Weiterarbeit mit Claude.
+
 Die bisherigen Änderungen sind in [MR !1](https://gitlab.com/hahntim518/kalo/-/merge_requests/1) und [MR !2](https://gitlab.com/hahntim518/kalo/-/merge_requests/2) zusammengeführt. Die vollständige Prüfung steht in [Anforderungen und offene Punkte](docs/2026-11-13-requirements-audit.md). Dort umgesetzte Funktionen als Grundlage verwenden und weiterentwickeln, statt sie nochmals einzubauen. Offene Punkte sind ausdrücklich gekennzeichnet.
 
 ## Entwickeln

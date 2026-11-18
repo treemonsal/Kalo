@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Appearance } from "../../lib/appearance";
+import type { Design } from "../../lib/design";
 import { workspaceShape, type Workspace } from "../../lib/learning";
 import { goalOf } from "../../lib/progress";
 import { Icon } from "./icons";
@@ -13,10 +14,10 @@ export const BACKUP_FORMAT = "kalo";
 const LEGACY_FORMAT = "kartenloop";
 
 type Props = {
-  workspace: Workspace; busy: boolean; theme: Appearance; chatLink: string;
+  workspace: Workspace; busy: boolean; theme: Appearance; design: Design; chatLink: string;
   pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string };
   onBack: () => void;
-  mutate: Mutate; onTheme: (value: Appearance) => void; onChatLink: (value: string) => boolean;
+  mutate: Mutate; onTheme: (value: Appearance) => void; onDesign: (value: Design) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
 };
 
@@ -24,7 +25,7 @@ const GOALS = [10, 20, 30, 50];
 const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
 const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
 
-export default function SettingsView({ workspace, busy, theme, chatLink, mutate, onTheme, onChatLink, onError, onNotice, pushKey, push, onBack }: Props) {
+export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack }: Props) {
   const sound = useStored(SOUND_KEY) !== "off";
   const morning = push?.morning ?? "06:45";
   const evening = push?.evening ?? "19:30";
@@ -63,6 +64,12 @@ export default function SettingsView({ workspace, busy, theme, chatLink, mutate,
     <div className="view-bar"><button className="icon-button" aria-label="Zurück zum Profil" onClick={onBack}><Icon kind="back" /></button></div>
     <header className="page-head"><h1>Einstellungen</h1></header>
     <section className="panel flow"><h2>Darstellung</h2>
+      <div className="setting"><span className="setting-label" id="design">Design</span>
+        <div className="appearance" role="radiogroup" aria-labelledby="design" aria-describedby="design-note">
+          {([["current", "Neu"], ["classic", "Bisherig"]] as const).map(([value, label]) =>
+            <label key={value}><input type="radio" name="design" value={value} checked={design === value} onChange={() => onDesign(value)} /><span>{label}</span></label>)}
+        </div></div>
+      <p className="muted" id="design-note">Neu: Graphit. Bisherig: Indigo und die vertraute Schrift. Jederzeit wechselbar.</p>
       <div className="setting"><span className="setting-label" id="scheme">Farbschema</span>
         <div className="appearance" role="radiogroup" aria-labelledby="scheme">
           {([["dark", "Dunkel"], ["light", "Hell"], ["system", "System"]] as const).map(([value, label]) =>

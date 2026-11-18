@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConflictError, actionShape, apply, deckDigest, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
 import type { PushSettings } from "./push.ts";
 import { friendSummaries, notice, publicDuel, runSocial, socialShape, type Duel, type FriendRef, type Share } from "./social.ts";
-import { isDurableAction } from "./learning-sync.ts";
+import { isDurableAction, actionShuffle } from "./learning-sync.ts";
 import { explainPair } from "./explanations.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
@@ -150,7 +150,7 @@ function displayName(account: Account, req: Request) {
 function visible(account: Account, req: Request) {
   return {
     profile: { name: displayName(account, req), picture: account.profile?.picture ?? null, custom: Boolean(account.profile?.name) },
-    workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {},
+    workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {}, confirmed: account.syncClients ?? {},
     push: { enabled: Boolean(account.push?.subs.length), morning: account.push?.morning ?? "06:45", evening: account.push?.evening ?? "19:30" },
   };
 }
@@ -201,7 +201,7 @@ class Rejection extends Error {
   }
 }
 
-function change(account: Account, action: Mutation, now: number) {
+function change(account: Account, action: Mutation, now: number, identity?: string) {
   account.selections = account.selections.filter(item => item.expires > now);
   if (action.type === "share") {
     const deck = account.workspace.decks.find(item => item.id === action.deckId);
@@ -226,7 +226,7 @@ function change(account: Account, action: Mutation, now: number) {
     if (action.type === "save" && action.draftId && !account.drafts.some(d => d.id === action.draftId)) {
       throw new Rejection("Dieser Entwurf wurde bereits übernommen oder entfernt.", 409);
     }
-    try { account.workspace = apply(account.workspace, action, now); }
+    try { account.workspace = apply(account.workspace, action, now, identity ? actionShuffle(identity) : undefined); }
     catch (error) {
       if (error instanceof ConflictError) throw new Rejection(error.message, 409);
       throw new Rejection(error instanceof Error ? error.message : "Aktion fehlgeschlagen.", 400);
@@ -319,7 +319,7 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
           return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karten wurden inzwischen auf einem anderen Gerät weiter gelernt. Prüfe die lokalen Bewertungen." }, 409);
         }
       }
-      try { token = change(account, action, actionTime); }
+      try { token = change(account, action, actionTime, requestId); }
       catch (error) {
         if (!(error instanceof Rejection)) throw error;
         // The current state goes along, so the client shows what actually happened.

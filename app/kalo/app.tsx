@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
-import { dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
+import type { Design } from "../../lib/design";
+import { apply, dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
 import type { FriendSummary } from "../../lib/social";
 import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
@@ -25,8 +26,8 @@ import CardExplainSheet from "./card-explain-sheet";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
-import { applyAppearance, syncThemeColor } from "./theme";
-import { DurableQueue, isDurableAction, type SyncState } from "../../lib/learning-sync";
+import { applyAppearance, applyDesign, syncThemeColor } from "./theme";
+import { DurableQueue, WorkspaceProjection, isDurableAction, type SyncState } from "../../lib/learning-sync";
 import { freshEditor, row, type PassSnapshot, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult, type View } from "./types";
 
 const DEFAULT_CHAT = "https://chatgpt.com/";
@@ -55,13 +56,13 @@ function isEditor(value: unknown): value is Editor {
 
 /** Turns a failed request into a message with a sensible next step. */
 function problemFor(status: number, message: string | undefined, retry: () => void): Problem {
-  if (status === 0) return { message: "Keine Verbindung. Deine letzte Änderung ist noch nicht gespeichert.", action: { label: "Erneut versuchen", run: retry } };
+  if (status === 0) return { message: message || "Keine Verbindung. Deine letzte Änderung ist noch nicht gespeichert.", action: { label: "Erneut versuchen", run: retry } };
   if (status === 401) return { message: "Deine Anmeldung ist abgelaufen.", link: { label: "Neu anmelden", href: "/signin-with-chatgpt?return_to=%2F" } };
   if (status >= 500) return { message: message || "Kalo kann gerade nicht speichern.", action: { label: "Erneut versuchen", run: retry } };
   return { message: message || "Diese Änderung war nicht möglich." };
 }
 
-export default function Kalo({ accountId, initialAppearance }: { accountId: string; initialAppearance: Appearance }) {
+export default function Kalo({ accountId, initialAppearance, initialDesign }: { accountId: string; initialAppearance: Appearance; initialDesign: Design }) {
   const bookmarkKey = "kalo-last:" + accountId;
   const editorKey = "kalo-editor:" + accountId;
   const [data, setData] = useState<Data | null>(null);
@@ -75,6 +76,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [cardsStart, setCardsStart] = useState<CardsStart | null>(null);
   const [chatCard, setChatCard] = useState<string>();
   const [theme, setTheme] = useState(initialAppearance);
+  const [design, setDesign] = useState(initialDesign);
   const [problem, setProblem] = useState<Problem | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,6 +89,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
   const outbox = useRef<DurableQueue<MutateResult> | null>(null);
   const dataRef = useRef<Data | null>(null);
+  const confirmedData = useRef<Data | null>(null);
+  const projection = useRef(new WorkspaceProjection());
   const pending = useRef(0);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const lastRefresh = useRef(0);
@@ -104,9 +108,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
 
   const accept = useCallback((next: Data) => {
     const old = dataRef.current;
-    if (old && next.revision < old.revision) return;
+    const previous = confirmedData.current;
+    if (previous && next.revision < previous.revision) return;
     // Mutation replies leave out partner and push key; keep the last known ones.
-    const value = { ...next, friends: next.friends === undefined ? old?.friends : next.friends, partner: next.partner === undefined ? old?.partner : next.partner, pushKey: next.pushKey ?? old?.pushKey };
+    const base = { ...next, friends: next.friends === undefined ? previous?.friends : next.friends, partner: next.partner === undefined ? previous?.partner : next.partner, pushKey: next.pushKey ?? previous?.pushKey };
+    confirmedData.current = base;
+    const value = { ...base, workspace: projection.current.project(base.workspace, outbox.current?.pendingActions ?? [], base.confirmed) };
     dataRef.current = value;
     setData(value);
     if (!old) return;
@@ -141,7 +148,8 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         if (response.ok && !result.workspace) throw new Error("Unvollständige Antwort");
         return { status: response.status, result };
       },
-      accept: next => { accept(next); setTime(Date.now()); }, changed: setSync,
+      accept: next => { if (next.workspace) accept(next); setTime(Date.now()); },
+      changed: state => { setSync(state); if (confirmedData.current) accept(confirmedData.current); },
     });
     outbox.current = queue;
     queueMicrotask(() => { setSync(queue.state); void queue.retry(); });
@@ -175,7 +183,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       const next = await result.json() as Data | { unchanged: true; friends?: FriendSummary[]; partner?: Data["partner"] };
       if (requestNumber !== refreshSequence.current) return;
       if (!("unchanged" in next)) accept(next);
-      else if (dataRef.current && known === dataRef.current.revision && next.friends !== undefined) accept({ ...dataRef.current, friends: next.friends, partner: next.partner });
+      else if (confirmedData.current && known === confirmedData.current.revision && next.friends !== undefined) accept({ ...confirmedData.current, friends: next.friends, partner: next.partner });
       setTime(Date.now());
       setProblem(current => current?.action?.label === "Erneut laden" ? null : current);
     } catch {
@@ -219,32 +227,38 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  // Queued actions (swipes, undo, stars) run strictly in order. Others are dropped while something runs.
-  const mutate: Mutate = async (action, options = {}) => {
-    if (!dataRef.current || ((pending.current || outbox.current?.state.pending) && !options.queue)) return null;
-    pending.current += 1;
-    setBusy(true);
-    if (!options.silent) setProblem(null);
+  // Learning continues after durable local storage; server replies rebase the outstanding actions in order.
+  const mutate = useCallback<Mutate>(async function mutate(action, options = {}) {
+    if (!dataRef.current) return null;
     if (isDurableAction(action)) {
       try {
+        if (!options.silent) setProblem(null);
         if (options.skip?.()) { options.onDone?.(true, 200); return dataRef.current as MutateResult; }
         if (!outbox.current) throw new Error("Dein Lernstand wird noch geladen.");
+        apply(dataRef.current.workspace, action, Date.now()); // Reject invalid actions before saving them to the outbox.
         const card = action.type === "sortCard" ? dataRef.current.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId) : undefined;
-        const result = await outbox.current.submit(action, undefined, card ? deckDigest({ title: "", cards: [card] }) : undefined);
-        options.onDone?.(Boolean(result), result ? 200 : 409);
-        return result;
+        await outbox.current.enqueue(action, undefined, card ? deckDigest({ title: "", cards: [card] }) : undefined);
+        if (confirmedData.current) accept(confirmedData.current);
+        setTime(Date.now());
+        options.onDone?.(true, 200);
+        return dataRef.current as MutateResult;
       } catch (error) {
         options.onDone?.(false, 400);
         setProblem({ message: error instanceof Error ? error.message : "Die Bewertung konnte nicht gesichert werden." });
         return null;
-      } finally {
-        pending.current -= 1;
-        if (!pending.current) setBusy(false);
       }
     }
+    if (pending.current && !options.queue) return null;
+    pending.current += 1;
+    setBusy(true);
+    if (!options.silent) setProblem(null);
     const run = async (): Promise<MutateResult | null> => {
       let status = 0;
       try {
+        if (outbox.current?.state.pending) {
+          await outbox.current.retry();
+          if (outbox.current.state.pending) throw new Error("Deine Bewertungen sind auf diesem Gerät gesichert. Verbinde Kalo mit dem Internet, bevor du diese Änderung speicherst.");
+        }
         if (options.skip?.()) { options.onDone?.(true, 200); return dataRef.current as MutateResult; }
         const response = await fetch("/api/workspace", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -261,9 +275,9 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         setTime(Date.now());
         options.onDone?.(true, status);
         return result;
-      } catch {
+      } catch (error) {
         options.onDone?.(false, status);
-        if (!options.silent) setProblem(problemFor(status, undefined, () => void mutate(action, options)));
+        if (!options.silent) setProblem(problemFor(status, outbox.current?.state.pending && error instanceof Error ? error.message : undefined, () => void mutate(action, options)));
         return null;
       } finally {
         pending.current -= 1;
@@ -273,7 +287,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
     const task = chain.current.then(run);
     chain.current = task.catch(() => undefined);
     return task;
-  };
+  }, [accept]);
 
   // Links from other people: ?set= (shared set), ?partner= (invite), ?duel= (challenge).
   const linkHandled = useRef(false);
@@ -334,6 +348,10 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   useEffect(() => { history.replaceState({ kaloView: view, deckId }, ""); }, [view, deckId]);
 
   function navigate(next: View) {
+    if (next === view) {
+      window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      return;
+    }
     setProblem(null);
     if (next !== view) history.pushState({ kaloView: next, deckId }, "");
     setView(next);
@@ -619,7 +637,7 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
   const profileView = view === "profile" || view === "profile-edit" || view === "stats" || view === "settings";
   const homeView = !profileView && view !== "chat";
   const creating = view === "editor" || view === "import";
-  const writingBusy = busy || sync.pending > 0;
+  const writingBusy = busy || sync.phase === "blocked";
 
   async function discardPending() {
     if (!await confirm({ title: "Lokale Änderungen verwerfen?", message: (sync.error ?? "Diese Änderungen konnten nicht abgeglichen werden.") + " " + sync.pending + " noch nicht bestätigte Aktionen werden von diesem Gerät entfernt. Bereits auf dem Server gespeicherte Bewertungen bleiben erhalten.", confirm: "Verwerfen", destructive: true })) return;
@@ -632,7 +650,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
       <header className="topbar">
         <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">
-          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="#d97757" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg> Kalo
+          {design === "current"
+            // eslint-disable-next-line @next/next/no-img-element -- kleines statisches App-Logo
+            ? <img src="/kalo-brown-128.png" width={30} height={30} alt="" />
+            :
+          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="#d97757" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          } Kalo
         </button>
         <div className="topbar-right">
           {data && (sync.pending > 0 || busy) && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
@@ -697,11 +720,12 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
         {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} confirm={confirm} deck={deck} start={cardsStart} direction={direction}
           workspace={workspace!} now={time} onStep={runStep}
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
+          problem={problem ?? (sync.phase === "blocked" ? { message: sync.error ?? "Deine Bewertungen sind lokal gesichert. Prüfe die Verbindung zum Konto.", action: { label: "Zum Set", run: returnToDeck } } : null)}
           onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => explainCard(deck, cardId)}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
           onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} />}
 
-        {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate}
+        {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate} draftKey={"kalo-answer:" + accountId}
           onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
           now={time} onStep={runStep} onHome={() => navigate("home")} />}
 
@@ -712,10 +736,11 @@ export default function Kalo({ accountId, initialAppearance }: { accountId: stri
           chatUrl={safeChatUrl(chatLink)} mutate={mutate} copy={text => void copy(text)} onBack={deck ? returnToDeck : () => history.back()}
           onImport={() => importText("new")} />}
 
-        {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} chatLink={chatLink}
+        {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} design={design} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
           pushKey={data?.pushKey} push={data?.push} onBack={() => navigate("profile")}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
+          onDesign={value => { setDesign(value); applyDesign(value); }}
           onChatLink={value => {
             const url = safeChatUrl(value);
             if (url !== value.trim() && value.trim() !== "https://chatgpt.com") return false;
