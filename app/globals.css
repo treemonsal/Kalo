@@ -360,7 +360,12 @@ details > summary { color: var(--ink); font-weight: 600; }
 .mode strong { font-size: var(--fs-headline); font-weight: 600; }
 .mode small { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-footnote); line-height: 1.35; }
 .mode-icon { display: inline-flex; color: var(--accent); }
-.mode[data-mode="learn"] { border-color: var(--line-strong); }
+/* The lead mode is the one obvious next step: full width, primary colours. */
+.study-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mode.lead { grid-column: 1 / -1; min-height: 72px; grid-template-columns: auto 1fr auto; align-content: center; border-color: transparent; color: var(--on-primary); background: var(--primary); }
+.mode.lead .mode-icon { color: var(--on-primary); }
+.mode.lead small { grid-column: auto; color: inherit; opacity: .72; }
+@media (hover: hover) and (pointer: fine) { button.mode.lead:hover:not(:disabled) { background: var(--primary-hover); border-color: transparent; } }
 .options-panel { padding-block: var(--space-3); }
 .options-panel summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 32px; }
 .summary-value { color: var(--muted); font-size: var(--fs-footnote); font-weight: 500; }
@@ -576,8 +581,8 @@ details[open] > summary { margin-bottom: var(--space-3); }
 
 /* Narrow screens */
 @media (max-width: 720px) {
-  .study-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mode { min-height: 88px; }
+  .mode:not(.lead) { min-height: 84px; padding: var(--space-3); grid-template-columns: minmax(0, 1fr); row-gap: var(--space-2); }
+  .mode:not(.lead) strong { font-size: var(--fs-callout); }
   .options { grid-template-columns: 1fr 1fr; }
   .options .check { grid-column: 1 / -1; }
 }

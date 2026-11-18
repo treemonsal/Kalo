@@ -35,12 +35,15 @@ export default function DeckView(props: Props) {
       .then(body => { if (active && body?.share) setImports(body.share.imports); }).catch(() => undefined);
     return () => { active = false; };
   }, [props.shareToken]);
-  const modes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
-    { mode: "cards", icon: "cards", title: "Karten", text: resume ? "weiter bei " + (resume.index + 1) + " von " + visible.length : String(visible.length) },
+  const allModes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
     { mode: "learn", icon: "target", title: "Lernen", text: open ? Math.min(open, 8) + " neu" : "0 neu" },
-    { mode: "cram", icon: "bolt", title: "Pauken", text: String(visible.length) },
     { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " bereit" : "0" },
+    { mode: "cram", icon: "bolt", title: "Pauken", text: String(visible.length) },
+    { mode: "cards", icon: "cards", title: "Karten", text: resume ? "weiter bei " + (resume.index + 1) + " von " + visible.length : String(visible.length) },
   ];
+  // Eine Hauptaktion: neue Karten lernen, sonst fällige wiederholen. Die übrigen Modi stehen kleiner darunter.
+  const lead = !open && (due || ready) ? "review" : "learn";
+  const modes = [...allModes.filter(m => m.mode === lead), ...allModes.filter(m => m.mode !== lead)];
 
   return <>
     <div className="view-bar">
@@ -75,7 +78,7 @@ export default function DeckView(props: Props) {
     </details>}
 
     <div className="study-modes">
-      {modes.map(item => <button key={item.mode} className="mode" data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
+      {modes.map(item => <button key={item.mode} className={item.mode === lead ? "mode lead" : "mode"} data-mode={item.mode} disabled={!visible.length || (busy && item.mode !== "cards")}
         onClick={() => item.mode === "cards" ? props.onCards() : props.onStart(item.mode)}>
         <span className="mode-icon"><Icon kind={item.icon} /></span><strong>{item.title}</strong><small className="mode-count">{item.text}</small>
       </button>)}
@@ -100,7 +103,7 @@ export default function DeckView(props: Props) {
     {!visible.length && <p className="quiet-line"><Icon kind="alert" /> In dieser Auswahl sind keine Karten. Wähle unter Lernoptionen eine andere Auswahl.</p>}
 
     <section className="set-list" aria-labelledby="cards-title">
-      <div className="section-head"><h2 id="cards-title" aria-label={deck.cards.length + " Karten"}><Icon kind="cards" /><span className="count">{deck.cards.length}</span></h2></div>
+      <div className="section-head"><h2 id="cards-title">{deck.cards.length} {deck.cards.length === 1 ? "Karte" : "Karten"}</h2></div>
       <ul className="panel card-rows">{deck.cards.map(item => <li key={item.id}>
         <span className="row-front">{item.front}</span><span className="row-back">{item.back}</span>
         <button className="icon-button star" aria-label={(item.starred ? "Markierung entfernen: " : "Markieren: ") + item.front} aria-pressed={item.starred}
