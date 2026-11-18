@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type PointerEvent, type Ref } from "react";
-import { dragOffset, swipeStep } from "../../lib/swipe";
+import { dragOffset, swipeIntent, swipeStep } from "../../lib/swipe";
 import { Icon } from "./icons";
 import { haptic, prefersReducedMotion, springs, stepSpring, textSize, toss, type Spring } from "./motion";
 
@@ -47,20 +47,26 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
   useLayoutEffect(() => {
     const element = stage.current;
     if (!element) return;
-    const mark = () => element.querySelectorAll<HTMLElement>(".card-copy").forEach(copy => {
-      copy.dataset.overflow = String(copy.scrollHeight > copy.clientHeight + 2);
-    });
+    const mark = () => {
+      element.querySelectorAll<HTMLElement>(".card-copy").forEach(copy => {
+        copy.dataset.overflow = String(copy.scrollHeight > copy.clientHeight + 2);
+      });
+      // Touch actions intersect with ancestors: allow native reading on a long visible face.
+      const copy = surface.current?.querySelector<HTMLElement>(flipped ? ".back .card-copy" : ".front .card-copy");
+      if (surface.current) surface.current.dataset.scrollable = copy?.dataset.overflow ?? "false";
+    };
     mark();
     const observer = new ResizeObserver(mark);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [card.key, card.question, card.answer, next?.key]);
+  }, [card.key, card.question, card.answer, next?.key, flipped]);
 
   function width() {
     return surface.current?.offsetWidth || 360;
   }
 
   function paint(x: number) {
+    if (!Number.isFinite(x)) x = 0;
     motion.current.x = x;
     const element = stage.current;
     if (!element) return;
@@ -142,7 +148,7 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
   useImperativeHandle(ref, () => ({
     fling: known => {
       const state = motion.current;
-      if (state.mode === "drag") return;
+      if (state.mode === "drag") drag.current = null;
       // Fast repeated input is kept in order and thrown as soon as the next card is in place.
       if (state.mode === "toss" || state.swapping) { if (state.queued.length < 8) state.queued.push(known); return; }
       throwCard(known, 0);
@@ -155,6 +161,7 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
     cancelAnimationFrame(state.frame);
     window.clearTimeout(state.fallback);
     state.swapping = false;
+    drag.current = null;
     delete stage.current?.dataset.swapping;
     paint(0);
     setMode("idle");
@@ -177,10 +184,10 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
     suppressClick.current = state.mode === "toss" || state.mode === "settle" && Math.abs(state.x) > 6;
     setMode("drag");
     drag.current = {
-      id: event.pointerId, x: event.clientX, y: event.clientY, offset: state.x, width: event.currentTarget.offsetWidth,
+      id: event.pointerId, x: event.clientX, y: event.clientY, offset: state.x, width: event.currentTarget.offsetWidth || width(),
       intent: Math.abs(state.x) > 6 ? "horizontal" : "pending", samples: [{ x: event.clientX, time: event.timeStamp }],
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Window release handlers also finish the gesture. */ }
   }
 
   function pointerMove(event: PointerEvent<HTMLButtonElement>) {
@@ -188,29 +195,51 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
     if (!current || current.id !== event.pointerId) return;
     const dx = event.clientX - current.x;
     const dy = event.clientY - current.y;
-    if (current.intent === "pending" && Math.max(Math.abs(dx), Math.abs(dy)) >= 8) {
-      current.intent = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
-    }
+    if (current.intent !== "horizontal") current.intent = swipeIntent(dx, dy);
     if (current.intent !== "horizontal") return;
     current.samples = [...current.samples.filter(sample => event.timeStamp - sample.time <= 90), { x: event.clientX, time: event.timeStamp }].slice(-6);
-    if (!prefersReducedMotion()) paint(dragOffset(current.offset + dx, current.width, true, true));
+    // Finger tracking is direct even with reduced motion; only automatic animations are reduced.
+    paint(dragOffset(current.offset + dx, current.width, true, true));
   }
 
-  function release(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
+  function release(event: Pick<PointerEvent, "pointerId" | "clientX" | "clientY" | "timeStamp">, cancelled = false) {
     const current = drag.current;
     if (!current || current.id !== event.pointerId) return;
     drag.current = null;
+    if (cancelled) { cancelAnimationFrame(motion.current.frame); suppressClick.current = true; paint(0); setMode("idle"); return; }
+    const dx = event.clientX - current.x;
+    if (current.intent !== "horizontal") current.intent = swipeIntent(dx, event.clientY - current.y);
     if (current.intent !== "pending") suppressClick.current = true;
     const recent = current.samples.find(sample => event.timeStamp - sample.time <= 105);
     const velocity = recent ? (event.clientX - recent.x) / Math.max(12, event.timeStamp - recent.time) : 0;
     const bounded = clamp(velocity, -2.4, 2.4);
-    const horizontal = !cancelled && current.intent === "horizontal";
-    const travelled = motion.current.x;
+    const horizontal = current.intent === "horizontal";
+    const travelled = horizontal ? current.offset + dx : motion.current.x;
+    if (horizontal) paint(travelled);
     const step = horizontal ? swipeStep(travelled, bounded, current.width, true, true) : 0;
     if (step) throwCard(step < 0, bounded * 1000);
     else if (current.intent === "pending" && Math.abs(travelled) < 1) setMode("idle");
     else settle(horizontal ? bounded * 1000 : 0, springs.release);
   }
+
+  useEffect(() => {
+    const up = (event: globalThis.PointerEvent) => release(event);
+    const cancel = (event: globalThis.PointerEvent) => release(event, true);
+    const reset = () => {
+      if (!drag.current) return;
+      drag.current = null; suppressClick.current = true;
+      cancelAnimationFrame(motion.current.frame); paint(0); setMode("idle");
+    };
+    const visibility = () => { if (document.hidden) reset(); };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("blur", reset);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("blur", reset); document.removeEventListener("visibilitychange", visibility);
+    };
+  });
 
   return <div className="card-stage" ref={stage} data-mode="idle">
     {next && <div className="card-under" aria-hidden="true">

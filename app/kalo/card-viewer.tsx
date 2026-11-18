@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lockViewport } from "../../lib/viewport-lock";
 import { dayOf, shuffle, type Deck, type Direction, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
 import { GoalBanner, NextStepActions, ResultDonut } from "./progress-ui";
 import { play } from "./sound";
-import type { Confirm, Problem } from "./feedback";
+import { ErrorBanner, type Confirm, type Problem } from "./feedback";
 import Flashcard, { type FlashcardHandle } from "./flashcard";
 import { Icon, Key } from "./icons";
 import type { CardsStart, LastActivity, PassSnapshot } from "./types";
@@ -19,13 +20,14 @@ type Props = {
   onSort: (cardId: string, known: boolean, sortId: string) => Promise<boolean>;
   onUndo: (sortId: string) => Promise<UndoResult>;
   onProblem: (problem: Problem | null) => void;
+  problem?: Problem | null;
   onBack: () => void; onHome: () => void; onChat: (cardId: string) => void;
   onBookmark: (activity: LastActivity) => void;
   /** Saves where this pass stands; immediate when leaving the card mode. */
   onProgress: (snapshot: PassSnapshot, immediate?: boolean) => void;
 };
 
-export default function CardViewer({ confirm, deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, onBack, onHome, onChat, onBookmark, onProgress }: Props) {
+export default function CardViewer({ confirm, deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, problem, onBack, onHome, onChat, onBookmark, onProgress }: Props) {
   const [order, setOrder] = useState(start.order);
   const [index, setIndex] = useState(start.index);
   const [flipped, setFlipped] = useState(start.flipped);
@@ -33,10 +35,9 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
   const [last, setLast] = useState<Swipe | null>(null);
   const [entry, setEntry] = useState<{ key: string; from: -1 | 1 } | null>(null);
   const [pass, setPass] = useState<Record<string, boolean>>(start.pass);
-  const [focus, setFocus] = useState(false);
   const [announce, setAnnounce] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
-  const expand = useRef<HTMLButtonElement>(null);
+  const leaving = useRef(false);
   const flashcard = useRef<FlashcardHandle>(null);
 
   const visible = order.filter(id => deck.cards.some(card => card.id === id));
@@ -47,9 +48,13 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
   const known = Object.values(pass).filter(Boolean).length;
   const later = Object.keys(pass).filter(id => !pass[id]);
 
-  useEffect(() => {
-    if (focus && !dialog.current?.open) dialog.current?.showModal();
-  }, [focus]);
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    const unlock = lockViewport();
+    if (!element.open) element.showModal();
+    return unlock;
+  }, []);
 
   useEffect(() => {
     if (card && !sorted) onBookmark({ mode: "cards", deckId: deck.id, cardId: card.id, order: visible, direction, flipped });
@@ -161,17 +166,18 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     return () => window.removeEventListener("keydown", key);
   });
 
-  function closeFocus() {
-    setFocus(false);
-    requestAnimationFrame(() => expand.current?.focus());
+  function leave() {
+    if (leaving.current) return;
+    leaving.current = true;
+    onBack();
   }
 
-  if (!card && !sorted) return <section className="panel flow"><h1>Karte nicht verfügbar</h1><p>Diese Karte wurde inzwischen gelöscht.</p><button className="button" onClick={onBack}>Zum Set</button></section>;
-
   const undoButton = last && <button className="text-button" onClick={() => undo()}><Icon kind="undo" /> Rückgängig <Key>Z</Key></button>;
-  const content = <section className="card-viewer">
+  const content = !card && !sorted
+    ? <section className="panel flow"><h1>Karte nicht verfügbar</h1><p>Diese Karte wurde inzwischen gelöscht.</p><button className="button" onClick={leave}>Zum Set</button></section>
+    : <section className="card-viewer">
     <header className="card-toolbar">
-      <button className="icon-button" aria-label={focus ? "Vollbild verlassen" : "Zurück zum Set"} title={focus ? "Vollbild verlassen" : "Zurück zum Set"} onClick={focus ? closeFocus : onBack}><Icon kind="back" /></button>
+      <button className="icon-button" aria-label="Zurück zum Set" title="Zurück zum Set" onClick={leave}><Icon kind="back" /></button>
       <div className="toolbar-title"><h1>{deck.title}</h1><span className="counter">{sorted ? visible.length : position + 1} von {visible.length}</span></div>
       <button className="icon-button" aria-label="Von vorne beginnen" title="Von vorne" disabled={sorted || position === 0} onClick={async () => {
         if (await confirm({ title: "Von vorne beginnen?", message: "Der Durchgang startet wieder bei Karte 1. Deine Bewertungen bleiben gespeichert.", confirm: "Von vorne" })) startOver();
@@ -179,9 +185,8 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       <button className="icon-button" aria-label="Karten mischen und neu beginnen" title="Mischen" onClick={async () => {
         if (position === 0 || await confirm({ title: "Mischen und neu beginnen?", message: "Der Durchgang startet gemischt wieder bei Karte 1.", confirm: "Mischen" })) restart(visible);
       }}><Icon kind="shuffle" /></button>
-      <button ref={focus ? undefined : expand} className="icon-button" aria-label={focus ? "Vollbild verlassen" : "Vollbild"} title={focus ? "Vollbild verlassen" : "Vollbild"}
-        onClick={focus ? closeFocus : () => setFocus(true)}><Icon kind={focus ? "shrink" : "expand"} /></button>
     </header>
+    {problem && <ErrorBanner problem={problem} onDismiss={() => onProblem(null)} />}
     <div className="meter" aria-hidden="true"><i style={{ width: ((sorted ? visible.length : position) / Math.max(1, visible.length)) * 100 + "%" }} /></div>
     <span className="sr-only" role="status">{announce}</span>
 
@@ -219,8 +224,6 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     </>}
   </section>;
 
-  return focus
-    ? <dialog className="focus-dialog" ref={dialog} aria-label={deck.title + " im Vollbild"} onClose={closeFocus}
-        onCancel={event => { event.preventDefault(); closeFocus(); }}>{content}</dialog>
-    : content;
+  return <dialog className="focus-dialog" ref={dialog} aria-label={deck.title + " im Vollbild"} onClose={leave}
+    onCancel={event => { event.preventDefault(); leave(); }}>{content}</dialog>;
 }

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { deckDigest, type Workspace } from "../lib/learning.ts";
+import { deckDigest, question, type Workspace } from "../lib/learning.ts";
+import { WorkspaceProjection, type QueuedAction } from "../lib/learning-sync.ts";
 import { AccountStore, api, explainApi, mcp } from "../lib/service.ts";
 import type { PairExplanation } from "../lib/explanations.ts";
 import { reminderFor, runReminders, vapidAuthorization } from "../lib/push.ts";
@@ -28,6 +29,31 @@ function setup() {
   return { store, request, now };
 }
 const save = { type: "save", title: "Privat", cards: [{ front: "Geheim", back: "Antwort" }] };
+
+test("Schnell vorgelernte Antworten bleiben nach Hintergrundabgleich samt neuer Rundenreihenfolge identisch", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: { ...save, cards: Array.from({ length: 4 }, (_, i) => ({ front: "Frage " + i, back: "Antwort " + i })) } }), store, now));
+  const started = await data<ApiReply>(api(request("alice", { action: { type: "start", deckId: saved.workspace.decks[0].id, direction: "front", filter: "all", mode: "learn" } }), store, now));
+  const projection = new WorkspaceProjection(); const items: QueuedAction[] = []; const clientId = crypto.randomUUID();
+  let local = started.workspace;
+  for (let i = 0; i < 10; i++) {
+    const session = local.session!;
+    items.push({ id: crypto.randomUUID(), clientId, sequence: i + 1, at: now + i * 1000,
+      action: { type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: question(local)!.answer } });
+    local = projection.project(started.workspace, items);
+  }
+  for (const item of items) {
+    const response = await api(request("alice", { ...item, requestId: item.id }), store, now + 20_000);
+    assert.equal(response.status, 200);
+    const reply = await data<ApiReply & { confirmed: Record<string, number> }>(response);
+    assert.equal(reply.confirmed[clientId], item.sequence);
+    assert.deepEqual(new WorkspaceProjection().project(reply.workspace, items, reply.confirmed), local);
+  }
+  assert.deepEqual((await store.read("alice")).workspace, local);
+  const last = items.at(-1)!;
+  assert.equal((await api(request("alice", { ...last, requestId: last.id }), store, now + 30_000)).status, 200);
+  assert.deepEqual((await store.read("alice")).workspace, local, "erneute Zustellung verändert den Fortschritt nicht");
+});
 
 test("Worterklärungen laden ausschliesslich die aktuelle eigene Karte", async () => {
   const { store, request, now } = setup();
