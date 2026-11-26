@@ -118,7 +118,8 @@ p { color: var(--muted); }
 .shell { display: grid; grid-template-rows: auto 1fr; min-height: 100dvh; overflow-x: clip; }
 .topbar {
   position: relative; z-index: 6; display: flex; align-items: center; justify-content: space-between;
-  padding: calc(var(--space-4) + env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right)) var(--space-2) max(var(--space-4), env(safe-area-inset-left));
+  /* The wordmark sits on the same left edge as the content column, also on wide screens. */
+  padding: calc(var(--space-4) + env(safe-area-inset-top)) max(var(--space-4), env(safe-area-inset-right), calc((100% - 1040px) / 2 + max(var(--space-4), 4vw) - var(--space-1))) var(--space-2) max(var(--space-4), env(safe-area-inset-left), calc((100% - 1040px) / 2 + max(var(--space-4), 4vw) - var(--space-1)));
   /* No colour boost here, so the bar matches the page exactly; content still blurs underneath. */
   background: var(--page);
 }
@@ -195,10 +196,11 @@ p { color: var(--muted); }
   border: 0; border-radius: 8px; color: var(--accent); background: none; font-size: var(--fs-callout); font-weight: 600; text-decoration: none;
 }
 .text-button.quiet { color: var(--muted); }
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .button:hover:not(:disabled) { border-color: var(--line-strong); }
   .button.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
-  .icon-button:hover:not(:disabled), .pill-button:hover:not(:disabled), .text-button:hover:not(:disabled) { color: var(--focus); }
+  /* Hover stays in the palette: brighter ink, not the blue that is reserved for the keyboard focus ring. */
+  .icon-button:hover:not(:disabled), .pill-button:hover:not(:disabled), .text-button:hover:not(:disabled) { color: var(--ink); }
   :is(.deck-tile, .mode, button.continue-card):hover:not(:disabled) { border-color: var(--line-strong); box-shadow: var(--shadow-raised); }
 }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -551,7 +553,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .answer[data-result="faded"] { opacity: .5; }
 .answer[data-result="correct"] { animation: pop 380ms var(--ease-spring); }
 .answer-mark { display: grid; place-items: center; width: 20px; }
-@media (hover: hover) { .answer:hover:not(:disabled) { border-color: var(--line-strong); background: var(--soft); } }
+@media (hover: hover) and (pointer: fine) { .answer:hover:not(:disabled) { border-color: var(--line-strong); background: var(--soft); } }
 .action-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 48px; }
 .action-bar > :last-child { margin-left: auto; }
 .action-hint { color: var(--muted); font-size: var(--fs-footnote); font-weight: 600; }
@@ -737,7 +739,6 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .exam-note { display: flex; align-items: center; gap: var(--space-2); grid-column: 1 / -1; font-size: var(--fs-footnote); font-weight: 600; }
 .exam-note[data-soon="true"] { color: var(--again-ink); }
 .plan-panel { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-.social-actions { margin-bottom: var(--space-4); }
 .partner-card {
   display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper);
@@ -767,9 +768,12 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .stat-tile > .icon-svg, .stat-tile .flame { margin-bottom: var(--space-2); color: var(--faint); }
 .stat-tile .flame[data-on="true"] { color: var(--mark); }
 .stat-tile strong { color: var(--ink); font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
+.stat-tile small { color: var(--muted); font-size: var(--fs-footnote); }
 .week-bars { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; gap: var(--space-2); height: 150px; padding-bottom: 22px; }
 .week-bar { position: relative; display: flex; align-items: end; justify-content: center; height: 100%; }
-.week-bar i { width: min(100%, 34px); border-radius: 8px 8px 3px 3px; background: var(--line-strong); }
+.week-bar i { position: relative; width: min(100%, 34px); border-radius: 8px 8px 3px 3px; background: var(--line-strong); }
+.week-bar i b { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); color: var(--muted); font-size: var(--fs-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
+.week-bar[data-today="true"] i b { color: var(--ink); }
 .week-bar[data-reached="true"] i { background: var(--known-ink); }
 .week-bar[data-today="true"] small { color: var(--ink); font-weight: 600; }
 .week-bar small { position: absolute; bottom: -22px; color: var(--muted); font-size: var(--fs-caption); }
@@ -907,10 +911,11 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .deck-exam[data-soon="true"] { color: var(--again-ink); }
 
 /* A compact date reminder uses the regular app surface; only the calendar is orange. */
-.exam-date-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-4); margin-bottom: var(--space-5); }
-.exam-date-mark { display: grid; place-items: center; width: 40px; height: 44px; color: var(--again-ink); }
-.exam-date-prompt h2 { margin: 0; color: var(--ink); font-size: 1.25rem; line-height: 1.3; }
-.exam-date-prompt > .button { grid-column: 1 / -1; min-height: 48px; font-size: 1rem; }
+/* One quiet row: icon, what is missing, one action. It stays on top without outweighing the learning card. */
+.exam-date-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4); }
+.exam-date-mark { display: grid; place-items: center; width: 24px; height: 40px; color: var(--again-ink); }
+.exam-date-prompt h2 { margin: 0; color: var(--ink); font-size: var(--fs-callout); font-weight: 600; line-height: 1.3; }
+.exam-date-prompt > .button { min-height: 40px; }
 .exam-date-dialog { width: min(480px, calc(100% - 32px)); }
 .exam-date-dialog h2 { font-size: 1.25rem; }
 .exam-date-dialog p { font-size: 1rem; }
@@ -921,7 +926,8 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .card-examples-field { margin-top: var(--space-4); }
 .card-examples-field textarea { min-height: 96px; }
 .card-stage, .question { position: relative; }
-.examples-button { position: absolute; z-index: 3; top: 12px; right: 12px; min-height: 44px; gap: 6px; padding: 8px 10px; border-radius: var(--radius-control); color: var(--accent); background: var(--raised); font-size: .875rem; touch-action: manipulation; }
+/* The same quiet text button on the card and in every learning mode. */
+.examples-button { position: absolute; z-index: 3; top: 12px; right: 12px; min-height: 44px; gap: 6px; padding: 8px 10px; border-radius: var(--radius-control); color: var(--accent); background: none; font-size: .875rem; touch-action: manipulation; }
 .card-stage[data-swapping] .examples-button { visibility: hidden; }
 .question[data-examples="true"] .question-content { padding-right: 108px; }
 .examples-dialog { width: min(620px, calc(100% - 32px)); max-height: calc(100dvh - 48px); }
@@ -946,7 +952,7 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .learning-primary { min-height: 166px; padding: var(--space-6); margin-bottom: var(--space-3); border-color: var(--line-strong); }
 .learning-primary .continue-copy { gap: var(--space-3); }
 .learning-primary .continue-copy > strong { font-size: clamp(1.35rem, 4.8vw, 1.8rem); line-height: 1.2; letter-spacing: -.025em; }
-.learning-primary .eyebrow { color: var(--accent); }
+.continue-meta { color: var(--muted); font-size: var(--fs-footnote); }
 .learning-primary .continue-go { width: 48px; height: 48px; border-radius: 50%; color: var(--on-primary); background: var(--primary); }
 .learning-primary .meter { width: min(100%, 280px); }
 .hero.compact { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); padding: var(--space-3) var(--space-4); background: var(--soft); border-color: transparent; }
@@ -987,7 +993,9 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 /* A calm profile: centred name, consistent icon metrics, editing in its own view. */
 .profile-title { margin: 0; max-width: 100%; width: 100%; text-align: center; font-size: var(--fs-title); font-weight: 600; overflow-wrap: anywhere; }
 .profile-metrics { display: flex; justify-content: center; align-items: center; gap: clamp(24px, 8vw, 48px); margin: 4px 0 0; padding: 0; list-style: none; }
-.profile-metrics li { display: flex; align-items: center; gap: 7px; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profile-metrics li { display: grid; justify-items: center; gap: 2px; }
+.profile-metrics .metric-value { display: flex; align-items: center; gap: 7px; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profile-metrics small { color: var(--muted); font-size: var(--fs-caption); }
 .profile-metrics .icon-svg { width: 21px; height: 21px; color: var(--muted); }
 .profile-metrics li[data-active="true"] .icon-svg { color: var(--mark); }
 .profile-friends { margin-bottom: var(--space-5); }
@@ -1089,3 +1097,33 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .examples-copy .explain-source { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); font-size: var(--fs-caption); }
 .examples-card .text-button.small { min-height: 32px; padding: 2px 0; font-size: var(--fs-footnote); }
 .answer-example { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--fs-footnote); line-height: 1.45; }
+
+/* While learning, the wordmark is a quiet signature, smaller and dimmer than the round's title. */
+.shell[data-view="study"] .brand { min-height: 44px; color: var(--faint); font-size: var(--fs-callout); }
+/* Editor fields grow with their text instead of showing a resize handle. */
+@supports (field-sizing: content) { .edit-list textarea { field-sizing: content; resize: none; } }
+
+/* Signature: a set is a small stack of index cards. A second card edge peeks out under each tile, like the stack under the learning card. */
+.deck-tile { box-shadow: 0 5px 0 -3px var(--soft), 0 5px 0 -2px var(--line), var(--shadow-surface); }
+@media (hover: hover) and (pointer: fine) { .deck-tile:hover:not(:disabled) { box-shadow: 0 5px 0 -3px var(--soft), 0 5px 0 -2px var(--line-strong), var(--shadow-raised); } }
+.decks { row-gap: var(--space-4); }
+
+/* «⋯» menu on the set page, growing from its button. */
+.view-bar-actions { display: flex; align-items: center; gap: var(--space-1); }
+/* Each block of a view animates in its own layer; the bar with the menu sits above the blocks that follow it. */
+.view-bar:has(.more-menu) { position: relative; z-index: 5; }
+.more-menu { position: relative; margin: 0; }
+.more-menu > summary, .more-menu[open] > summary { margin: 0; list-style: none; cursor: pointer; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-list {
+  position: absolute; z-index: 8; top: calc(100% + 4px); right: 0; display: grid; min-width: 220px; padding: var(--space-1);
+  border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--raised); box-shadow: var(--shadow-raised);
+  transform-origin: top right; animation: menu-in var(--t-quick) var(--ease-settle);
+}
+.more-list button { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-control); color: var(--ink); background: none; text-align: left; font-weight: 500; }
+.more-list button span { display: grid; }
+.more-list small { color: var(--muted); font-size: var(--fs-caption); font-weight: 400; }
+.more-list button:active { background: var(--soft); }
+@media (hover: hover) and (pointer: fine) { .more-list button:hover { background: var(--soft); } }
+@keyframes menu-in { from { opacity: 0; transform: scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .more-list { animation: none; } }

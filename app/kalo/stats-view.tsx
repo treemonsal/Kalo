@@ -23,10 +23,10 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
     <header className="page-head"><h1>Statistik</h1></header>
 
     <div className="stat-grid">
-      <div className="stat-tile" aria-label={current.days + " Tage Serie"} title="Serie"><span className="flame" data-on={current.days > 0}><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong></div>
-      <div className="stat-tile" aria-label={summary.cards + " Karten bearbeitet"} title="Bearbeitete Karten"><Icon kind="cards" /><strong>{summary.cards}</strong></div>
-      <div className="stat-tile" aria-label={summary.secured + " Karten gelernt"} title="Gelernte Karten"><Icon kind="sparkle" /><strong>{summary.secured}</strong></div>
-      <div className="stat-tile" aria-label={accuracy === null ? "Noch keine bewerteten Antworten" : accuracy + " Prozent richtig"} title="Richtige Antworten"><Icon kind="target" /><strong>{accuracy === null ? "–" : accuracy + "%"}</strong></div>
+      <div className="stat-tile" aria-label={current.days + " Tage Serie"} title="Serie"><span className="flame" data-on={current.days > 0}><Icon kind="flame" filled={current.days > 0} /></span><strong>{current.days}</strong><small>{current.days === 1 ? "Tag Serie" : "Tage Serie"}</small></div>
+      <div className="stat-tile" aria-label={summary.cards + " Karten bearbeitet"} title="Bearbeitete Karten"><Icon kind="cards" /><strong>{summary.cards}</strong><small>Karten diese Woche</small></div>
+      <div className="stat-tile" aria-label={summary.secured + " Karten gelernt"} title="Gelernte Karten"><Icon kind="sparkle" /><strong>{summary.secured}</strong><small>Neu gelernt</small></div>
+      <div className="stat-tile" aria-label={accuracy === null ? "Noch keine bewerteten Antworten" : accuracy + " Prozent richtig"} title="Richtige Antworten"><Icon kind="target" /><strong>{accuracy === null ? "–" : accuracy + "%"}</strong><small>Richtig beim Abfragen</small></div>
     </div>
 
     <section className="panel flow" aria-labelledby="week-title">
@@ -34,7 +34,9 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
       <div className="week-bars" role="img" aria-label={"Punkte von Montag bis Sonntag: " + summary.days.map(item => item.points).join(", ") + ". Tagesziel " + goal + " Punkte."}>
         <span className="goal-mark" style={{ bottom: "calc(22px + (100% - 22px) * " + goal / top + ")" }} aria-hidden="true"><span className="goal-number">{goal}</span></span>
         {summary.days.map(item => <span key={item.key} className="week-bar" data-reached={item.reached} data-today={item.key === dayOf(now)}>
-          <i style={{ height: Math.max(2, (item.points / top) * 100) + "%" }} title={item.cards + " Karten bearbeitet · " + item.points + " Punkte"} />
+          <i style={{ height: Math.max(2, (item.points / top) * 100) + "%" }} title={item.cards + " Karten bearbeitet · " + item.points + " Punkte"}>
+            {/* The number sits on its bar, so even a single day of data reads at a glance. */}
+            {item.points > 0 && <b aria-hidden="true">{item.points}</b>}</i>
           <small>{weekday.format(Date.parse(item.key + "T12:00:00Z"))}</small>
         </span>)}
       </div>
@@ -43,7 +45,7 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
 
     <SubjectLevels workspace={workspace} />
 
-    {decks.length > 0 && <section aria-labelledby="mastery"><div className="section-head"><h2 id="mastery" aria-label="Sets"><Icon kind="library" /><span className="sr-only">Sets</span></h2></div>
+    {decks.length > 0 && <section aria-labelledby="mastery"><div className="section-head"><h2 id="mastery">Sets</h2></div>
       <ul className="mastery-list">{decks.map(({ deck, share }) => <li key={deck.id}><MasteryRing share={share} /><span>{deck.title}</span></li>)}</ul>
     </section>}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { dayOf, dueCards, reviewQueue, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
 import { examIn, sitting } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
@@ -40,6 +40,16 @@ export default function DeckView(props: Props) {
   const resume = saved && !saved.done && saved.filter === filter && saved.index > 0 ? saved : null;
   const exam = examIn(deck, time);
   const [imports, setImports] = useState<number | null>(null);
+  const menu = useRef<HTMLDetailsElement>(null);
+  const closeMenu = () => menu.current?.removeAttribute("open");
+  // The menu closes on a tap outside or Escape, like a native menu.
+  useEffect(() => {
+    const outside = (event: PointerEvent) => { if (menu.current?.open && !menu.current.contains(event.target as Node)) closeMenu(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && menu.current?.open) { closeMenu(); menu.current.querySelector("summary")?.focus(); } };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, []);
   useEffect(() => {
     if (!props.shareToken) return;
     let active = true;
@@ -60,7 +70,18 @@ export default function DeckView(props: Props) {
   return <>
     <div className="view-bar">
       <button className="text-button" aria-label={"Zurück zu " + props.backLabel} onClick={props.onHome}><Icon kind="back" /></button>
-      <button className="icon-button" onClick={props.onEdit} aria-label="Set bearbeiten"><Icon kind="edit" /></button>
+      <div className="view-bar-actions">
+        <button className="icon-button" onClick={props.onEdit} aria-label="Set bearbeiten"><Icon kind="edit" /></button>
+        {/* Sharing, duel and ChatGPT are occasional: one menu instead of a row above the learning modes. */}
+        <details className="more-menu" ref={menu}>
+          <summary className="icon-button" aria-label="Weitere Aktionen"><Icon kind="more" /></summary>
+          <div className="more-list" role="menu">
+            <button role="menuitem" onClick={() => { closeMenu(); props.onShare(); }}><Icon kind="share" /><span>Teilen{imports ? <small>{imports + (imports === 1 ? " nutzt es" : " nutzen es")}</small> : null}</span></button>
+            <button role="menuitem" onClick={() => { closeMenu(); props.onDuel(); }}><Icon kind="swords" /><span>Duell</span></button>
+            <button role="menuitem" onClick={() => { closeMenu(); props.onChat(); }}><Icon kind="chat" /><span>Mit ChatGPT lernen</span></button>
+          </div>
+        </details>
+      </div>
     </div>
     <header className="page-head">
       <div>
@@ -74,7 +95,7 @@ export default function DeckView(props: Props) {
     </header>
 
     {props.onResume && <button className="continue-card compact" onClick={props.onResume}>
-      <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Weitermachen</strong></span>
+      <span className="continue-copy"><strong>Weitermachen</strong><span className="continue-meter">Offene Runde</span></span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
     </button>}
 
@@ -98,11 +119,6 @@ export default function DeckView(props: Props) {
 
     {exam !== null && <p className="deck-exam" data-soon={exam <= 3}><Icon kind="calendar" /> {exam === 0 ? "Prüfung heute" : "Prüfung in " + exam + (exam === 1 ? " Tag" : " Tagen")} · {deck.cards.length - done ? deck.cards.length - done + " Karten sitzen noch nicht" : "alles sitzt"}</p>}
 
-    <div className="actions social-actions">
-      <button className="text-button" onClick={props.onShare}><Icon kind="share" /> Teilen{imports ? " · " + imports + (imports === 1 ? " nutzt es" : " nutzen es") : ""}</button>
-      <button className="text-button" onClick={props.onDuel}><Icon kind="swords" /> Duell</button>
-      <button className="text-button" onClick={props.onChat}><Icon kind="chat" /> ChatGPT</button>
-    </div>
 
     <details className="panel options-panel">
       <summary><span>Lernoptionen</span><span className="summary-value">{filter === "starred" ? "Markierte Karten" : filter === "mistakes" ? "Letzte Fehler" : "Alle Karten"}{direction === "back" ? " · Rückseite zuerst" : ""}{writing ? " · Nur schreiben" : ""}</span></summary>

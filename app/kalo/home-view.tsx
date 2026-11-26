@@ -32,17 +32,18 @@ export default function HomeView({ workspace, decks, busy, dueSets, dueCount, du
     <header className="page-head"><h1>Was lernst du heute?</h1></header>
 
     {missingDates.length > 0 && <section className="panel exam-date-prompt" aria-labelledby="exam-date-prompt-title">
-      <span className="exam-date-mark" aria-hidden="true"><Icon kind="calendar" size="l" /></span>
-      <h2 id="exam-date-prompt-title">Trage deine Prüfungstermine ein</h2>
-      <button className="button primary" disabled={busy} onClick={() => onExamDate(missingDates[0])}>Prüfungsdatum eintragen</button>
+      <span className="exam-date-mark" aria-hidden="true"><Icon kind="calendar" /></span>
+      <h2 id="exam-date-prompt-title">{missingDates.length === 1 ? "Prüfungstermin fehlt" : missingDates.length + " Prüfungstermine fehlen"}</h2>
+      <button className="button primary small" disabled={busy} onClick={() => onExamDate(missingDates[0])}>Datum eintragen</button>
     </section>}
 
     {workspace.decks.length === 0 ? <EmptyState icon="cards" title="Dein erstes Set">
       <button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button>
     </EmptyState> : <>
       {primary ? <button className="continue-card learning-primary" disabled={busy} onClick={primary.open}>
-        <span className="continue-copy"><span className="eyebrow">{primary.label}</span><strong>{primary.title}</strong>
-          {primary.progress !== undefined && <span className="meter"><i style={{ width: Math.round(primary.progress * 100) + "%" }} /></span>}
+        {/* Title first, the kind of step below it as quiet meta: no label above the heading. An empty bar says nothing, so it only appears with progress. */}
+        <span className="continue-copy"><strong>{primary.title}</strong><span className="continue-meta">{primary.label}</span>
+          {primary.progress !== undefined && primary.progress > 0 && <span className="meter"><i style={{ width: Math.round(primary.progress * 100) + "%" }} /></span>}
         </span><span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
       </button> : decks.length === 0 ? <EmptyState icon="calendar" title="Keine offenen Prüfungen" text="Deine bisherigen Themen findest du weiterhin unter Alle Sets."><button className="button" onClick={onProfile}>Alle Sets</button></EmptyState>
         : <div className="daily-done"><Icon kind="check" /><div><strong>Alles für heute geschafft</strong>{Number.isFinite(nextReview) && <p>Nächste Wiederholung {dateFormat.format(nextReview)}</p>}</div></div>}
