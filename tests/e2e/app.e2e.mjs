@@ -181,13 +181,18 @@ await scenario("Gemischtes Wiederholen: Hilfe und Lückentext bleiben im richtig
     await page.getByRole("button", { name: "Beispiele und Erklärung anzeigen" }).click();
     await page.waitForSelector(".examples-dialog[open]");
     await page.waitForFunction(() => !document.querySelector(".explain-loading"));
-    assert.deepEqual(lookups.at(-1), { deckId: deck.id, cardId: deck.cards[0].id }, "Wörterbuch verwendet das tatsächliche Set");
+    assert.deepEqual(lookups.at(-1), { deckId: deck.id, cardId: deck.cards[0].id }, "Wörterbuch verwendet das tatsächliche Set (Karte " + (i + 1) + ", Anfrage " + JSON.stringify(lookups.at(-1)) + ")");
     await page.locator(".example-lines .text-button").first().click();
     await page.waitForSelector("text=Als Karte gespeichert");
     await page.getByRole("button", { name: "Beispiele schliessen" }).click();
     await page.waitForSelector(".examples-dialog", { state: "detached" });
     await page.locator(".answer-box.placeholder").click();
     await page.locator('.grades button[data-grade="3"]').click();
+    // Ratings are stored asynchronously in the local journal; wait for the next question before reading it.
+    if (i === 0) await page.waitForFunction(previous => {
+      const question = document.querySelector("#prompt");
+      return question && question.textContent !== previous;
+    }, prompt);
   }
   assert.equal(seen.size, 2);
   const saved = await page.evaluate(async () => (await (await fetch("/api/workspace")).json()).workspace.decks);
