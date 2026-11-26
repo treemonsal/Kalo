@@ -355,3 +355,13 @@ test("Auch nach tausenden weiteren Änderungen wird eine alte Anfrage nicht noch
   assert.equal(after.workspace.decks[0].cards[0].starred, false);
   assert.equal(after.revision, before.revision);
 });
+
+test("Vollständiges Laden meldet den belegten Speicher, Lernantworten nicht", async () => {
+  const { store, request, now } = setup();
+  await api(request("alice", { action: save }), store, now);
+  const full = await data<{ storage?: { used: number; limit: number } }>(api(request("alice"), store, now));
+  assert.ok(full.storage && full.storage.used > 100 && full.storage.used < full.storage.limit);
+  assert.equal(full.storage?.limit, 1_450_000);
+  const reply = await data<{ storage?: unknown }>(api(request("alice", { action: save }), store, now));
+  assert.equal(reply.storage, undefined, "Antworten auf Aktionen messen nicht");
+});

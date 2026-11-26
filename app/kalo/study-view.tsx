@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MAX_LEARN_ROUNDS, dayOf, matches, previewIntervals, question, secure, type Workspace } from "../../lib/learning";
+import { MAX_LEARN_ROUNDS, dayOf, matches, previewIntervals, question, secure, sessionDecks, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
 import { GoalBanner, NextStepActions } from "./progress-ui";
 import { play } from "./sound";
@@ -97,11 +97,12 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const current = positionOf(session);
   const shown = result && (result.to === current || (result.to === null && result.from === current)) ? result : null;
   const deck = workspace.decks.find(item => item.id === session.deckId);
+  const decks = sessionDecks(workspace, session);
   const mastered = session.initial.filter(id => (session.tally[id]?.streak ?? 0) >= 2);
   const open = session.initial.filter(id => (session.tally[id]?.streak ?? 0) < 2);
   const roundBreak = session.mode === "learn" && !session.done && session.round > 1 && session.cursor === 0 && openedRound !== current && !shown;
   const roundCorrect = session.initial.filter(id => level(session.tally[id]) > 0).length;
-  const front = (id: string) => deck?.cards.find(card => card.id === id)?.[session.direction] ?? "";
+  const front = (id: string) => decks.flatMap(item => item.cards).find(card => card.id === id)?.[session.direction] ?? "";
   // While a result is visible the count already includes it, so the bar does not jump twice.
   const total = Math.max(1, session.queue.length);
   const answered = shown ? Math.min(total, Number(shown.from.split(":")[2]) + 1) : session.done ? total : session.cursor;
@@ -135,7 +136,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const header = <>
     <div className="study-top">
       <button className="icon-button" aria-label={session.done ? "Zum Set" : "Lernen unterbrechen"} title={session.done ? "Zum Set" : "Unterbrechen"} onClick={onBack}><Icon kind="back" /></button>
-      <div className="toolbar-title"><h1>{modeTitle[session.mode]}</h1><span className="counter">{deck?.title}</span></div>
+      <div className="toolbar-title"><h1>{modeTitle[session.mode]}</h1><span className="counter">{session.mixed?.length ? "Gemischt aus " + decks.length + " Sets" : deck?.title}</span></div>
       {(session.combo ?? 0) >= 3 && !session.done && <span className="combo-chip" key={session.combo} aria-label={"Combo: " + session.combo + " richtig in Folge"}>
         <Icon kind="flame" filled /> {session.combo}</span>}
     </div>

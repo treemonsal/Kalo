@@ -22,6 +22,9 @@ export type SocialAccount = Pick<Account, "friends" | "partner" | "profile" | "w
 /** Own profile pictures arrive as a small square JPEG data URL, made in the browser, and are stored in their own row (lib/picture.ts). */
 const pictureShape = z.string().max(PICTURE_MAX).refine(value => value.startsWith(PICTURE_PREFIX) && /^[A-Za-z0-9+/]+=*$/.test(value.slice(PICTURE_PREFIX.length)), "Ungültiges Bild.");
 
+/** One account is one database row; a row holds at most this many bytes. */
+export const ACCOUNT_LIMIT = 1_450_000;
+
 export class AccountStore {
   private readonly db: D1Database;
 
@@ -61,7 +64,7 @@ export class AccountStore {
   async writeSocial(accounts: { owner: string; account: Account }[], invite?: { key: string; revision: number; data: unknown }) {
     const rows = accounts.map(({ owner, account: { revision, ...data } }) => ({ owner, revision, payload: JSON.stringify(data) }));
     if (invite) rows.push({ owner: invite.key, revision: invite.revision, payload: JSON.stringify(invite.data) });
-    if (rows.some(row => new TextEncoder().encode(row.payload).length > 1_450_000)) throw new InputError("Deine Sets sind zusammen zu gross. Sichere sie und entferne ungenutzte Karten.");
+    if (rows.some(row => new TextEncoder().encode(row.payload).length > ACCOUNT_LIMIT)) throw new InputError("Deine Sets sind zusammen zu gross. Sichere sie und entferne ungenutzte Karten.");
     const checks = rows.map(() => "(owner = ? AND revision = ?)").join(" OR ");
     const cases = rows.map(() => "WHEN ? THEN ?").join(" ");
     const ids = rows.map(() => "?").join(", ");
@@ -81,7 +84,7 @@ export class AccountStore {
 
   async putRecord(recordKey: string, revision: number, data: unknown) {
     const payload = JSON.stringify(data);
-    if (payload.length > 1_450_000) throw new InputError("Das ist zu gross zum Teilen.");
+    if (payload.length > ACCOUNT_LIMIT) throw new InputError("Das ist zu gross zum Teilen.");
     const operation = revision === 0
       ? this.db.prepare("INSERT OR IGNORE INTO accounts (owner, revision, payload) VALUES (?, 1, ?)").bind(recordKey, payload)
       : this.db.prepare("UPDATE accounts SET revision = revision + 1, payload = ? WHERE owner = ? AND revision = ?").bind(payload, recordKey, revision);
@@ -102,7 +105,7 @@ export class AccountStore {
   async write(owner: string, account: Account) {
     const { revision, ...data } = account;
     const payload = JSON.stringify(data);
-    if (new TextEncoder().encode(payload).length > 1_450_000) {
+    if (new TextEncoder().encode(payload).length > ACCOUNT_LIMIT) {
       throw new InputError("Deine Sets sind zusammen zu gross. Sichere sie und entferne ungenutzte Karten.");
     }
     const operation = revision === 0
@@ -287,7 +290,9 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
       return json({ unchanged: true, revision: Number(known), ...await socialVisible(store, await store.readSocial(owner), owner, now) });
     }
     const account = await store.read(owner);
-    return json({ ...visible(account, req), ...await socialVisible(store, account, owner, now), pushKey: options.pushKey ?? null });
+    // How full the account is, so the app can warn long before saving fails. Measured on full loads only, not on every swipe.
+    const storage = { used: new TextEncoder().encode(JSON.stringify({ ...account, revision: undefined })).length, limit: ACCOUNT_LIMIT };
+    return json({ ...visible(account, req), ...await socialVisible(store, account, owner, now), pushKey: options.pushKey ?? null, storage });
   }
   if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
   if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);

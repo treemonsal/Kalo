@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { dayOf, dueCards, reviewQueue, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
-import { examIn, sitting } from "../../lib/progress";
+import { examIn, examPace, sitting } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
 
 type Props = {
@@ -39,6 +39,7 @@ export default function DeckView(props: Props) {
   const saved = workspace.passes?.[deck.id + ":" + direction];
   const resume = saved && !saved.done && saved.filter === filter && saved.index > 0 ? saved : null;
   const exam = examIn(deck, time);
+  const pace = examPace(workspace, deck, time);
   const [imports, setImports] = useState<number | null>(null);
   const menu = useRef<HTMLDetailsElement>(null);
   const closeMenu = () => menu.current?.removeAttribute("open");
@@ -117,7 +118,7 @@ export default function DeckView(props: Props) {
       </button>)}
     </div>
 
-    {exam !== null && <p className="deck-exam" data-soon={exam <= 3}><Icon kind="calendar" /> {exam === 0 ? "Prüfung heute" : "Prüfung in " + exam + (exam === 1 ? " Tag" : " Tagen")} · {deck.cards.length - done ? deck.cards.length - done + " Karten sitzen noch nicht" : "alles sitzt"}</p>}
+    {exam !== null && <p className="deck-exam" data-soon={exam <= 3}><Icon kind="calendar" /> {exam === 0 ? "Prüfung heute" : "Prüfung in " + exam + (exam === 1 ? " Tag" : " Tagen")} · {deck.cards.length - done ? deck.cards.length - done + " Karten sitzen noch nicht" : "alles sitzt"}{pace ? " · " + pace.perDay + " pro Tag bis zur Prüfung" : ""}</p>}
 
 
     <details className="panel options-panel">

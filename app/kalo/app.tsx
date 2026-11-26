@@ -24,12 +24,14 @@ import ProfileView from "./profile-view";
 import ProfileEditor from "./profile-editor";
 import StreakCelebration from "./streak-celebration";
 import { HelpContext } from "./examples-button";
+import { useNavigation } from "./navigation";
+import { SAMPLE_SET } from "../../lib/sample";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
 import { applyAppearance, applyDesign, syncThemeColor } from "./theme";
 import { DurableQueue, WorkspaceProjection, isDurableAction, type SyncState } from "../../lib/learning-sync";
-import { freshEditor, row, type PassSnapshot, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult, type View } from "./types";
+import { freshEditor, row, type PassSnapshot, type CardsStart, type Data, type Draft, type Editor, type LastActivity, type Mutate, type MutateResult } from "./types";
 
 const DEFAULT_CHAT = "https://chatgpt.com/";
 const MAX_CARDS = 400;
@@ -63,16 +65,13 @@ function problemFor(status: number, message: string | undefined, retry: () => vo
   return { message: message || "Diese Änderung war nicht möglich." };
 }
 
-type Tab = "home" | "profile";
-/** What each browser history entry remembers about the app. */
-type Entry = { kaloView: View; deckId: string; tab: Tab; prev: View };
-
 export default function Kalo({ accountId, initialAppearance, initialDesign }: { accountId: string; initialAppearance: Appearance; initialDesign: Design }) {
   const bookmarkKey = "kalo-last:" + accountId;
   const editorKey = "kalo-editor:" + accountId;
   const [data, setData] = useState<Data | null>(null);
-  const [view, setView] = useState<View>("home");
   const [deckId, setDeckId] = useState("");
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const { view, setView, tab, navigate, goBack, restorable } = useNavigation({ deckId, setDeckId, onNavigate: () => setProblem(null) });
   const [editor, setEditor] = useState<Editor | null>(null);
   const [examDateDeckId, setExamDateDeckId] = useState<string | null>(null);
   const [importTarget, setImportTarget] = useState<"new" | "append">("new");
@@ -83,13 +82,11 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   const [chatCard, setChatCard] = useState<string>();
   const [theme, setTheme] = useState(initialAppearance);
   const [design, setDesign] = useState(initialDesign);
-  const [problem, setProblem] = useState<Problem | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [time, setTime] = useState(0);
   const [confirm, confirmDialog] = useConfirm();
   const [duelToken, setDuelToken] = useState("");
-  const [tab, setTab] = useState<Tab>("home");
   const [celebrate, setCelebrate] = useState<{ previous: number; streak: number } | null>(null);
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
   const outbox = useRef<DurableQueue<MutateResult> | null>(null);
@@ -116,7 +113,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     const previous = confirmedData.current;
     if (previous && next.revision < previous.revision) return;
     // Mutation replies leave out partner and push key; keep the last known ones.
-    const base = { ...next, friends: next.friends === undefined ? previous?.friends : next.friends, partner: next.partner === undefined ? previous?.partner : next.partner, pushKey: next.pushKey ?? previous?.pushKey };
+    const base = { ...next, friends: next.friends === undefined ? previous?.friends : next.friends, partner: next.partner === undefined ? previous?.partner : next.partner, pushKey: next.pushKey ?? previous?.pushKey, storage: next.storage ?? previous?.storage };
     confirmedData.current = base;
     const value = { ...base, workspace: projection.current.project(base.workspace, outbox.current?.pendingActions ?? [], base.confirmed) };
     dataRef.current = value;
@@ -332,51 +329,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     if (view !== "home" && !main.current?.contains(document.activeElement)) main.current?.focus({ preventScroll: true });
   }, [view]);
 
-  // Views live in the browser history, so the native back gesture (iPhone edge swipe, Android back) works.
-  const restorable = useRef({ editor: false, cards: false, duel: false });
   useEffect(() => { restorable.current = { editor: Boolean(editor), cards: Boolean(cardsStart), duel: Boolean(duelToken) }; });
-  useEffect(() => {
-    const pop = (event: PopStateEvent) => {
-      const state = event.state as Partial<Entry> | null;
-      const ready = restorable.current;
-      let next: View = state?.kaloView ?? "home";
-      if (next === "editor" && !ready.editor) next = "home";
-      if (next === "cards" && !ready.cards) next = state?.deckId ? "deck" : "home";
-      if (next === "duel" && !ready.duel) next = "home";
-      setProblem(null);
-      if (state?.deckId !== undefined) setDeckId(state.deckId);
-      setTab(state?.tab ?? "home");
-      setView(next);
-    };
-    window.addEventListener("popstate", pop);
-    return () => window.removeEventListener("popstate", pop);
-  }, []);
-  useEffect(() => {
-    const current = history.state as Partial<Entry> | null;
-    history.replaceState({ ...current, kaloView: view, deckId, tab } satisfies Partial<Entry>, "");
-  }, [view, deckId, tab]);
-
-  /**
-   * Every view belongs to a tab, like in a native app: Home or Profil. Opening Home or Profil switches the tab,
-   * every other view keeps it. The dock highlights the tab and «Zurück» leads back into it.
-   */
-  function navigate(next: View) {
-    if (next === view) {
-      window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-      return;
-    }
-    setProblem(null);
-    const nextTab: Tab = next === "home" || next === "profile" ? next : tab;
-    history.pushState({ kaloView: next, deckId, tab: nextTab, prev: view } satisfies Entry, "");
-    setTab(nextTab);
-    setView(next);
-  }
-
-  /** Back to a view: a step back in the history when that is where we came from, so the back gesture does not loop. */
-  function goBack(target: View) {
-    if ((history.state as Partial<Entry> | null)?.prev === target) history.back();
-    else navigate(target);
-  }
 
   function changeEditor(update: (current: Editor) => Editor) {
     if (!editor) return;
@@ -483,7 +436,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     bookmarkStudy(saved.id); navigate("study");
   }
 
-  async function start(mode: Mode, options?: { target: Deck; side: Direction; dueOnly?: true }, override?: Filter) {
+  async function start(mode: Mode, options?: { target: Deck; side: Direction; dueOnly?: true; mixed?: string[] }, override?: Filter) {
     const target = options?.target ?? deck;
     if (!target) return;
     const side = options?.side ?? direction;
@@ -498,6 +451,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     const result = await mutate({
       type: "start", mode, deckId: target.id, direction: side,
       filter: selectedFilter, writing: options ? false : writing, dueOnly: options?.dueOnly,
+      ...(options?.mixed?.length ? { mixed: options.mixed } : {}),
     });
     if (!result) return;
     setDeckId(target.id);
@@ -536,6 +490,13 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   // mutate reads only refs, so a stable callback is safe.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Creates the sample set and opens it, so a new account can try every mode at once. */
+  async function addSample() {
+    const result = await mutate({ type: "save", title: SAMPLE_SET.title, cards: SAMPLE_SET.cards.map(card => ({ ...card, frontAliases: [], backAliases: [], starred: false })) });
+    const created = result?.workspace.decks.find(item => item.title === SAMPLE_SET.title);
+    if (created) openDeck(created);
+  }
 
   function openDeck(item: Deck) {
     setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck");
@@ -699,12 +660,14 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
             </EmptyState>
           : <LibrarySkeleton />)}
 
-        {workspace && view === "home" && <HomeView workspace={workspace} decks={activeHomeDecks} busy={writingBusy} dueSets={homeDueSets} dueCount={homeDueCount} dueByDeck={dueByDeck} nextReview={nextReview}
+        {workspace && view === "home" && <HomeView workspace={workspace} decks={activeHomeDecks} busy={writingBusy} dueSets={homeDueSets} dueCount={homeDueCount} dueByDeck={dueByDeck} storageFull={data?.storage ? data.storage.used / data.storage.limit : 0} nextReview={nextReview}
           recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined, activeHomeDecks)}
           drafts={data?.drafts ?? []} onDraft={draft => edit(undefined, draft)} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
-          onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
-          onOpenDeck={openDeck} onCreate={() => edit()} onExamDate={deck => setExamDateDeckId(deck.id)} />}
+          // Everything due at once, interleaved across sets of the same side, as questions come in an exam.
+          onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true,
+            mixed: homeDueSets.filter(other => other.side === item.side && other.deck.id !== item.deck.id).map(other => other.deck.id) })}
+          onOpenDeck={openDeck} onCreate={() => edit()} onChat={() => openChat()} onImport={() => importText("new")} onSample={() => void addSample()} onExamDate={deck => setExamDateDeckId(deck.id)} />}
 
         {examDateDeck && <ExamDateDialog deck={examDateDeck} busy={writingBusy} onClose={() => setExamDateDeckId(null)} onSave={async date => {
           if (!await mutate({ type: "setDeckMeta", deckId: examDateDeck.id, examDate: date }, { silent: true })) return false;
@@ -758,7 +721,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} design={design} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
-          pushKey={data?.pushKey} push={data?.push} backLabel={tab === "profile" ? "Profil" : "Home"} onBack={() => goBack(tab)}
+          pushKey={data?.pushKey} push={data?.push} storage={data?.storage} backLabel={tab === "profile" ? "Profil" : "Home"} onBack={() => goBack(tab)}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onDesign={value => { setDesign(value); applyDesign(value); }}
           onChatLink={value => {

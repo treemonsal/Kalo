@@ -108,6 +108,17 @@ export function openCards(state: Workspace, deck: Deck, direction: Direction = "
   return deck.cards.filter(card => !secure(state, card.id, direction));
 }
 
+/**
+ * How many open cards a day it takes to have everything sitting by the exam: the open cards spread over the days
+ * left, the exam day itself not counted. Null without an upcoming exam or when nothing is open.
+ */
+export function examPace(state: Workspace, deck: Deck, now: number) {
+  const days = examIn(deck, now);
+  const open = openCards(state, deck).length;
+  if (days === null || days <= 0 || !open) return null;
+  return { days, open, perDay: Math.ceil(open / days) };
+}
+
 /** Home keeps undated topics, but an exam stops being open on its Zurich calendar day. */
 export function homeDecks(state: Workspace, now: number) {
   const today = dayOf(now);

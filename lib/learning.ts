@@ -30,6 +30,8 @@ const filterShape = z.enum(["all", "starred", "mistakes"]);
 const tallyShape = z.object({ seen: z.boolean(), streak: z.number().int().min(0).max(2), missed: z.boolean() });
 const sessionShape = z.object({
   id: key, deckId: key, mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean(),
+  /** Further sets in a mixed review. Questions from several sets interleave, as in an exam. */
+  mixed: z.array(key).max(80).optional(),
   initial: z.array(key).max(400), queue: z.array(key).max(400), tally: z.record(tallyShape),
   cursor: z.number().int().min(0).max(400), round: z.number().int().positive(), done: z.boolean(),
   correct: z.number().int().nonnegative(), mistakes: z.array(key).max(400),
@@ -96,7 +98,7 @@ export const actionShape = z.discriminatedUnion("type", [
   z.object({ type: z.literal("addExample"), deckId: key, cardId: key, example: z.string().trim().min(1).max(700) }),
   /** Adds a single card to a set, for example a cloze card made from an example sentence. */
   z.object({ type: z.literal("addCard"), deckId: key, front: z.string().trim().min(1).max(1500), back: z.string().trim().min(1).max(1500) }),
-  z.object({ type: z.literal("start"), deckId: key, mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean().default(false), dueOnly: z.boolean().optional() }),
+  z.object({ type: z.literal("start"), deckId: key, mixed: z.array(key).max(80).optional(), mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean().default(false), dueOnly: z.boolean().optional() }),
   z.object({ type: z.literal("continueLearn"), sessionId: key }),
   z.object({ type: z.literal("resumeSession"), sessionId: key }),
   z.object({ type: z.literal("answer"), ...position, round: z.number().int().positive(), answer: z.string().max(3000), self: z.boolean().optional() }),
@@ -286,9 +288,20 @@ export function choices(deck: Deck, card: Card, direction: Direction, seed = "")
   return [correct, ...distractors].sort((a, b) => order(a) - order(b));
 }
 
+/** The sets of a round: its own set and, for a mixed review, the others. */
+export function sessionDecks(state: Workspace, session: Pick<Session, "deckId" | "mixed">) {
+  const ids = new Set([session.deckId, ...(session.mixed ?? [])]);
+  return state.decks.filter(deck => ids.has(deck.id));
+}
+
+/** The set a card belongs to. */
+export function deckOfCard(state: Workspace, cardId: string) {
+  return state.decks.find(deck => deck.cards.some(card => card.id === cardId));
+}
+
 export function question(state: Workspace) {
   const s = state.session;
-  const deck = state.decks.find(d => d.id === s?.deckId);
+  const deck = s ? sessionDecks(state, s).find(d => d.cards.some(c => c.id === s.queue[s.cursor])) : undefined;
   const card = deck?.cards.find(c => c.id === s?.queue[s.cursor]);
   if (!s || s.done || !deck || !card) return null;
   const answer = card[reverse(s.direction)];
@@ -361,8 +374,8 @@ function checkBackup(state: Workspace) {
   const sessions = [state.session, ...(state.pausedSessions ?? [])].filter((s): s is Session => s !== null);
   if (new Set(sessions.map(s => s.id)).size !== sessions.length) throw new Error("Die Sicherung enthält doppelte Lernrunden.");
   for (const session of sessions) {
-    const valid = new Set(state.decks.find(d => d.id === session.deckId)?.cards.map(c => c.id));
-    if (!decks.has(session.deckId) || [...session.initial, ...session.queue, ...session.mistakes, ...Object.keys(session.tally)].some(id => !valid.has(id))
+    const valid = new Set(sessionDecks(state, session).flatMap(d => d.cards.map(c => c.id)));
+    if (!decks.has(session.deckId) || (session.mixed ?? []).some(id => !decks.has(id)) || [...session.initial, ...session.queue, ...session.mistakes, ...Object.keys(session.tally)].some(id => !valid.has(id))
       || (!session.done && session.cursor >= session.queue.length)) throw new Error("Die Sicherung enthält eine ungültige Lernrunde.");
   }
 }
@@ -404,8 +417,9 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       }
       old.title = action.title;
       old.cards = cards;
-      if (state.session?.deckId === old.id && changed.length) state.session = null;
-      if (changed.length && state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => s.deckId !== old.id);
+      const uses = (s: Session) => s.deckId === old.id || Boolean(s.mixed?.includes(old.id));
+      if (state.session && uses(state.session) && changed.length) state.session = null;
+      if (changed.length && state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => !uses(s));
     } else {
       state.decks.unshift({ id: crypto.randomUUID(), title: action.title, cards });
     }
@@ -434,8 +448,9 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     delete state.mistakes[reviewKey(old.id, "back")];
     state.decks = state.decks.filter(d => d.id !== old.id);
     if (state.passes) for (const direction of ["front", "back"] as const) delete state.passes[passKey(old.id, direction)];
-    if (state.session?.deckId === old.id) state.session = null;
-    if (state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => s.deckId !== old.id);
+    const uses = (s: Session) => s.deckId === old.id || Boolean(s.mixed?.includes(old.id));
+    if (state.session && uses(state.session)) state.session = null;
+    if (state.pausedSessions) state.pausedSessions = state.pausedSessions.filter(s => !uses(s));
     return state;
   }
   if (action.type === "setGoal") {
@@ -476,7 +491,9 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     if (!deck?.cards.some(card => card.id === action.cardId)) throw new Error("Diese Karte wurde nicht gefunden.");
     const id = reviewKey(action.cardId, action.direction);
     const before = state.reviews[id] ?? null;
-    state.reviews[id] = schedule(state.reviews[id], id, action.known ? 3 : 1, now);
+    // «Kann ich» while browsing is a self-assessment without proof, and people overrate it. It counts like «Schwer»
+    // (grade 2): the card comes back sooner than after an answer that was actually written or rated in a review.
+    state.reviews[id] = schedule(state.reviews[id], id, action.known ? 2 : 1, now);
     track(state, now, { secured: before?.state !== 2 && state.reviews[id].state === 2 });
     const mistakeKey = reviewKey(deck.id, action.direction);
     const wasMistake = Boolean(state.mistakes[mistakeKey]?.includes(action.cardId));
@@ -522,7 +539,13 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     let cards = finished
       ? deck.cards.filter(c => finished.initial.includes(c.id) && finished.tally[c.id]?.streak < 2)
       : deck.cards.filter(c => config.filter === "all" || (config.filter === "starred" ? c.starred : recent.includes(c.id)));
-    if (action.type === "start" && action.mode === "review") cards = reviewQueue(state, cards, action.direction, now, action.dueOnly);
+    // A mixed review interleaves the due cards of several sets, so the answer is not given away by the set it sits in.
+    const mixed = action.type === "start" && action.mode === "review" && action.mixed?.length
+      ? action.mixed.filter(id => id !== deck.id && state.decks.some(d => d.id === id)) : undefined;
+    if (action.type === "start" && action.mode === "review" && mixed?.length) {
+      cards = order([deck, ...mixed.map(id => state.decks.find(d => d.id === id)!)]
+        .flatMap(item => reviewQueue(state, item.cards, action.direction, now, action.dueOnly)));
+    } else if (action.type === "start" && action.mode === "review") cards = reviewQueue(state, cards, action.direction, now, action.dueOnly);
     else if (action.type === "start" && action.mode === "learn") {
       cards = order(cards).filter(c => (state.progress[reviewKey(c.id, action.direction)]?.streak ?? 0) < 2).slice(0, LEARN_UNIT);
     } else cards = order(cards);
@@ -530,7 +553,8 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     const tally = Object.fromEntries(cards.map(c => [c.id, config.mode === "learn"
       ? state.progress[reviewKey(c.id, config.direction)] ?? blank() : blank()]));
     const queue = config.mode === "learn" ? initial.filter(id => tally[id].streak < 2) : initial;
-    activateSession(state, { id: crypto.randomUUID(), deckId: deck.id, mode: config.mode,
+    const mixedDecks = action.type === "start" ? mixed : finished?.mixed;
+    activateSession(state, { id: crypto.randomUUID(), deckId: deck.id, ...(mixedDecks?.length ? { mixed: mixedDecks } : {}), mode: config.mode,
       direction: config.direction, filter: config.filter, writing: config.writing, initial, queue, tally,
       cursor: 0, round: 1, done: !queue.length, correct: 0, mistakes: [], combo: 0, best: 0,
       ...(action.type === "start" && action.dueOnly ? { dueOnly: true } : {}) });
@@ -571,7 +595,7 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       secured = before < 2 && tally.streak === 2;
     }
     track(state, now, { points: correct && q.gold ? 2 : 1, correct, secured });
-    const mistakeKey = reviewKey(s.deckId, s.direction);
+    const mistakeKey = reviewKey(deckOfCard(state, q.card.id)?.id ?? s.deckId, s.direction);
     const recent = state.mistakes[mistakeKey] ?? [];
     state.mistakes[mistakeKey] = correct ? recent.filter(id => id !== q.card.id)
       : [...new Set([...recent, q.card.id])];

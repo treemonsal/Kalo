@@ -22,6 +22,8 @@ type Props = {
   entry?: { key: string; from: -1 | 1 } | null;
   /** Shows the tap hint, only until the gesture is known. */
   hint?: boolean;
+  /** Nudges the card once to the left and right, so the swipe and its two meanings are seen before reading anything. */
+  demo?: boolean;
   onFlip: () => void;
   onSwipe: (known: boolean) => void;
 };
@@ -32,7 +34,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
  * The card follows the finger 1:1, keeps the release velocity, is thrown off in the direction of the swipe
  * and can be caught again mid-flight. The next card waits underneath and grows into place.
  */
-export default function Flashcard({ ref, card, next, flipped, entry, hint, onFlip, onSwipe }: Props) {
+export default function Flashcard({ ref, card, next, flipped, entry, hint, demo, onFlip, onSwipe }: Props) {
   const stage = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -147,6 +149,30 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
       return true;
     });
   }
+
+  // A damped swing: about 50 px to the left, then to the right, then at rest. Any touch takes over immediately.
+  useEffect(() => {
+    if (!demo || prefersReducedMotion()) return;
+    const timer = window.setTimeout(() => {
+      if (motion.current.mode !== "idle") return;
+      setMode("settle");
+      // The demo only moves the card; the next card underneath stays blank, so no question shows early.
+      const stage = surface.current?.closest<HTMLElement>(".card-stage");
+      if (stage) stage.dataset.demo = "true";
+      const end = () => { if (stage) delete stage.dataset.demo; };
+      let time = 0;
+      run(dt => {
+        if (motion.current.mode !== "settle") { end(); return true; }
+        time += dt;
+        if (time >= 1.6) { paint(0); setMode("idle"); end(); return true; }
+        paint(-52 * Math.sin((time / 1.6) * 2 * Math.PI) * (1 - time / 1.6 * 0.35));
+        return false;
+      });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  // Only once, when the first card appears.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useImperativeHandle(ref, () => ({
     fling: known => {
