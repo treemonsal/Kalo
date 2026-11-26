@@ -11,6 +11,7 @@ import Flashcard, { type FlashcardHandle } from "./flashcard";
 import { Icon, Key } from "./icons";
 import type { CardsStart, LastActivity, PassSnapshot } from "./types";
 import { readStored, writeStored } from "./storage";
+import ProgressBeam from "./progress-beam";
 
 export type UndoResult = "ok" | "conflict" | "offline";
 type Swipe = { id: string; cardId: string; at: number; known: boolean };
@@ -51,6 +52,7 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
   const other = direction === "front" ? "back" : "front";
   const known = Object.values(pass).filter(Boolean).length;
   const later = Object.keys(pass).filter(id => !pass[id]);
+  const completed = sorted ? visible.length : position;
 
   useLayoutEffect(() => {
     const element = dialog.current;
@@ -196,7 +198,8 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     </header>
     {problem && <ErrorBanner problem={problem} onDismiss={() => onProblem(null)} />}
     <div className="study-progress">
-      <div className="meter" aria-hidden="true"><i style={{ width: ((sorted ? visible.length : position) / Math.max(1, visible.length)) * 100 + "%" }} /></div>
+      <ProgressBeam progress={completed / Math.max(1, visible.length)}
+        colors={visible.slice(0, completed).map(id => pass[id] === false ? "var(--again-ink)" : "var(--known-ink)")} />
       <span>{sorted ? visible.length : position + 1} von {visible.length}</span>
     </div>
     <span className="sr-only" role="status">{announce}</span>
