@@ -13,14 +13,16 @@ import type { Mutate } from "./types";
 export type Help = { chatUrl: string; mutate: Mutate; deckId: string };
 export const HelpContext = createContext<Help | null>(null);
 
-type CardHelp = { cardId: string; question: string; answer: string; examples?: string };
+type CardHelp = { cardId: string; deckId?: string; question: string; answer: string; examples?: string };
 
 /**
  * The one help for a card: own examples first, then the dictionary, then ChatGPT. Before the answer is shown,
  * every form of it is hidden in the examples, so they help without giving it away.
  */
 export default function ExamplesButton({ card, revealed, onBeforeOpen }: { card: CardHelp; revealed: boolean; onBeforeOpen?: () => boolean }) {
-  const help = use(HelpContext);
+  const context = use(HelpContext);
+  // Mixed reviews can show a card from another set, including the previous card while its result is visible.
+  const help = context && { ...context, deckId: card.deckId ?? context.deckId };
   const [opened, setOpened] = useState<{ anchor: HTMLElement | null } | null>(null);
   const open = opened !== null;
   const button = useRef<HTMLButtonElement>(null);

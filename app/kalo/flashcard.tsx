@@ -84,7 +84,10 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, demo,
 
   function setMode(mode: Mode) {
     motion.current.mode = mode;
-    if (stage.current) stage.current.dataset.mode = mode;
+    if (stage.current) {
+      stage.current.dataset.mode = mode;
+      if (mode !== "settle") delete stage.current.dataset.demo;
+    }
   }
 
   function run(step: (dt: number) => boolean) {

@@ -541,10 +541,11 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
       : deck.cards.filter(c => config.filter === "all" || (config.filter === "starred" ? c.starred : recent.includes(c.id)));
     // A mixed review interleaves the due cards of several sets, so the answer is not given away by the set it sits in.
     const mixed = action.type === "start" && action.mode === "review" && action.mixed?.length
-      ? action.mixed.filter(id => id !== deck.id && state.decks.some(d => d.id === id)) : undefined;
+      ? [...new Set(action.mixed)].filter(id => id !== deck.id && state.decks.some(d => d.id === id)) : undefined;
     if (action.type === "start" && action.mode === "review" && mixed?.length) {
       cards = order([deck, ...mixed.map(id => state.decks.find(d => d.id === id)!)]
-        .flatMap(item => reviewQueue(state, item.cards, action.direction, now, action.dueOnly)));
+        .flatMap(item => reviewQueue(state, item.cards, action.direction, now, action.dueOnly))).slice(0, 400);
+      // A saved session holds at most 400 cards. The remaining due cards stay available for the next round.
     } else if (action.type === "start" && action.mode === "review") cards = reviewQueue(state, cards, action.direction, now, action.dueOnly);
     else if (action.type === "start" && action.mode === "learn") {
       cards = order(cards).filter(c => (state.progress[reviewKey(c.id, action.direction)]?.streak ?? 0) < 2).slice(0, LEARN_UNIT);
