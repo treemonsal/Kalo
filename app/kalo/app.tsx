@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
 import type { Design } from "../../lib/design";
-import { apply, cardLearningDigest, dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
+import { apply, cardLearningDigest, dayOf, deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
 import type { FriendSummary } from "../../lib/social";
 import { dayStats, goalOf, homeDecks, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
@@ -23,7 +23,7 @@ import SettingsView from "./settings-view";
 import ProfileView from "./profile-view";
 import ProfileEditor from "./profile-editor";
 import StreakCelebration from "./streak-celebration";
-import CardExplainSheet from "./card-explain-sheet";
+import { HelpContext } from "./examples-button";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
 import StudyView from "./study-view";
@@ -91,7 +91,6 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   const [duelToken, setDuelToken] = useState("");
   const [tab, setTab] = useState<Tab>("home");
   const [celebrate, setCelebrate] = useState<{ previous: number; streak: number } | null>(null);
-  const [explain, setExplain] = useState<{ deckId: string; card: Card; direction: Direction } | null>(null);
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
   const outbox = useRef<DurableQueue<MutateResult> | null>(null);
   const dataRef = useRef<Data | null>(null);
@@ -548,11 +547,6 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     navigate("chat");
   }
 
-  function explainCard(item: Deck, cardId: string) {
-    const card = item.cards.find(card => card.id === cardId);
-    if (card) setExplain({ deckId: item.id, card, direction });
-  }
-
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -743,17 +737,17 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
           onBack={() => navigate(importTarget === "append" && editor ? "editor" : "home")} onAccept={acceptImport}
           onError={message => setProblem(message ? { message } : null)} />}
 
-        {data && view === "cards" && deck && cardsStart && <CardViewer key={cardsStart.key} confirm={confirm} deck={deck} start={cardsStart} direction={direction}
+        {data && view === "cards" && deck && cardsStart && <HelpContext value={{ chatUrl: safeChatUrl(chatLink), mutate, deckId: deck.id }}><CardViewer key={cardsStart.key} confirm={confirm} deck={deck} start={cardsStart} direction={direction}
           workspace={workspace!} now={time} onStep={runStep}
           onSort={(cardId, known, sortId) => sortCard(deck, cardId, known, sortId)} onUndo={undoSort} onProblem={setProblem}
           problem={problem ?? (sync.phase === "blocked" ? { message: sync.error ?? "Deine Bewertungen sind lokal gesichert. Prüfe die Verbindung zum Konto.", action: { label: "Zum Set", run: returnToDeck } } : null)}
-          onBack={returnToDeck} onHome={() => navigate("home")} onChat={cardId => explainCard(deck, cardId)}
+          onBack={returnToDeck} onHome={() => navigate("home")}
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
-          onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} />}
+          onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} /></HelpContext>}
 
-        {workspace && view === "study" && session && <StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate} draftKey={"kalo-answer:" + accountId}
+        {workspace && view === "study" && session && <HelpContext value={{ chatUrl: safeChatUrl(chatLink), mutate, deckId: session.deckId }}><StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate} draftKey={"kalo-answer:" + accountId}
           onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
-          now={time} onStep={runStep} onHome={() => navigate("home")} />}
+          now={time} onStep={runStep} onHome={() => navigate("home")} /></HelpContext>}
 
         {data && view === "duel" && duelToken && <DuelView key={duelToken} token={duelToken} mutate={mutate} onHome={() => navigate("home")}
           onShare={(token, title) => void share(location.origin + "/?duel=" + token, "Duell: " + title)} />}
@@ -794,7 +788,6 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
       </div>
       {confirmDialog}
       {celebrate && <StreakCelebration previous={celebrate.previous} days={celebrate.streak} onClose={() => setCelebrate(null)} />}
-      {explain && <CardExplainSheet key={explain.card.id} deckId={explain.deckId} card={explain.card} direction={explain.direction} chatUrl={safeChatUrl(chatLink)} onClose={() => setExplain(null)} />}
     </div>
   );
 }

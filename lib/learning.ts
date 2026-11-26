@@ -92,6 +92,10 @@ export const actionShape = z.discriminatedUnion("type", [
     cards: z.array(cardInput.extend({ id: key.optional() })).min(1).max(400) }),
   z.object({ type: z.literal("delete"), deckId: key }),
   z.object({ type: z.literal("star"), deckId: key, cardId: key, starred: z.boolean() }),
+  /** Adds one example line to a card, for example a sentence from the dictionary. */
+  z.object({ type: z.literal("addExample"), deckId: key, cardId: key, example: z.string().trim().min(1).max(700) }),
+  /** Adds a single card to a set, for example a cloze card made from an example sentence. */
+  z.object({ type: z.literal("addCard"), deckId: key, front: z.string().trim().min(1).max(1500), back: z.string().trim().min(1).max(1500) }),
   z.object({ type: z.literal("start"), deckId: key, mode: modeShape, direction: directionShape, filter: filterShape, writing: z.boolean().default(false), dueOnly: z.boolean().optional() }),
   z.object({ type: z.literal("continueLearn"), sessionId: key }),
   z.object({ type: z.literal("resumeSession"), sessionId: key }),
@@ -443,6 +447,22 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     if (!deck) throw new Error("Dieses Set wurde nicht gefunden.");
     if (action.examDate !== undefined) deck.examDate = action.examDate;
     if (action.subject !== undefined) deck.subject = action.subject || null;
+    return state;
+  }
+  if (action.type === "addExample") {
+    const card = state.decks.find(item => item.id === action.deckId)?.cards.find(item => item.id === action.cardId);
+    if (!card) throw new Error("Diese Karte wurde nicht gefunden.");
+    const lines = (card.examples ?? "").split("\n").map(line => line.trim()).filter(Boolean);
+    if (!lines.includes(action.example)) card.examples = [...lines, action.example].join("\n").slice(0, 6000);
+    return state;
+  }
+  if (action.type === "addCard") {
+    const deck = state.decks.find(item => item.id === action.deckId);
+    if (!deck) throw new Error("Dieses Set wurde nicht gefunden.");
+    if (deck.cards.length >= 400) throw new Error("Ein Set hat höchstens 400 Karten.");
+    if (!deck.cards.some(card => card.front === action.front && card.back === action.back)) {
+      deck.cards.push({ id: crypto.randomUUID(), front: action.front, back: action.back, frontAliases: [], backAliases: [], starred: false });
+    }
     return state;
   }
   if (action.type === "star") {

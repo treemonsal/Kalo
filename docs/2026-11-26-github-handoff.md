@@ -33,3 +33,11 @@ Die letzte Korrektur nutzt beim Umdrehen nur eine echte Kartenfläche: zusammenk
 Für diese veröffentlichte Quelle waren am 25.11.2026 ESLint, TypeScript, alle 92 Tests und der Produktionsbuild erfolgreich. Zusätzliche lokale DOM-Prüfungen deckten die Animation während des Drehens, schnelle Richtungswechsel, Abbruch beim Kartenwechsel, Beispiele während einer Drehung, genaue Kartenkanten und Grössenänderungen sowie die bestehenden Lernabläufe ab. Ein echter iPhone-/WebKit-Sichttest war nicht verfügbar.
 
 Versionierte Quellen, Bilder, Konfigurationen, Dokumentation und Tests sind vollständig übernommen. Lokale Abhängigkeiten, Build-Ausgaben, Laufzeitdaten und Zugangsdaten gehören nicht zum Quellstand. GitHub-Commits veröffentlichen die Sites-App nicht automatisch.
+
+## Nachtrag: GitHub ist die einzige Quelle
+
+Ab dem 26.11.2026 ist GitHub `treemonsal/Kalo`, Branch `main`, die einzige Arbeitsgrundlage. GitLab wird nicht mehr gepflegt.
+
+Die Review-Änderungen aus `sync/gitlab-main-20261126` sind neu auf dem veröffentlichten Stand umgesetzt und über den Branch `claude/code-review-suggestions-88knqs` in `main` eingeflossen: Profilbilder als eigene Datei mit eigener Adresse, Lernantworten ohne Freundeskonten, Navigation per Tab, eine Regel für sitzende Karten. Beispiele, unterbrochene Lernrunden und der Erklär-Einstieg bleiben erhalten. Der Sicherungs-Branch wird nicht mehr gebraucht.
+
+Im selben Schritt wurden Beispiele und Wörterbuch zu einer Hilfe zusammengeführt (`examples-button.tsx`, `lib/examples.ts`): vor dem Antworten ist die Lösung in Beispielen ausgeblendet, nach einer falschen Antwort erscheint ein Beispiel, Wörterbuch-Beispiele lassen sich übernehmen und aus Beispielen entstehen Lückentext-Karten. Das frühere Erklär-Fenster (`card-explain-sheet.tsx`) ist entfernt.

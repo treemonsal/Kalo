@@ -7,7 +7,8 @@ import { GoalBanner, NextStepActions } from "./progress-ui";
 import { play } from "./sound";
 import { Icon, Key } from "./icons";
 import ExamplesButton from "./examples-button";
-import { finePointer, textSize } from "./motion";
+import { clozeFrom, exampleLines } from "../../lib/examples";
+import { finePointer, prefersReducedMotion, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
 import { parseStored, readStored, writeStored } from "./storage";
 
@@ -70,7 +71,27 @@ type Props = {
 export default function StudyView({ workspace, session, busy, mutate, now, draftKey, onBack, onStart, onStep, onHome }: Props) {
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
-  const swipeStart = useRef<number | null>(null);
+  const swipe = useRef<{ id: number; x: number; dx: number } | null>(null);
+  const panel = useRef<HTMLElement>(null);
+  const leaving = useRef(false);
+
+  /**
+   * The result card leaves the way a flashcard does: it slides out to the side it was pushed and the next question
+   * comes in. Swiping in either direction means «weiter»; only the card mode gives the direction a meaning.
+   */
+  function advance(direction: -1 | 1 = -1) {
+    const element = panel.current;
+    if (leaving.current) return;
+    if (!element || prefersReducedMotion() || typeof element.animate !== "function") { setResult(null); return; }
+    leaving.current = true;
+    const from = element.style.transform || "translateX(0px)";
+    element.animate([{ transform: from, opacity: 1 }, { transform: "translateX(" + direction * 110 + "%) rotate(" + direction * 6 + "deg)", opacity: 0 }],
+      { duration: 200, easing: "cubic-bezier(.4,0,1,1)" }).finished.finally(() => {
+        element.style.transform = "";
+        leaving.current = false;
+        setResult(null);
+      });
+  }
   const submitted = useRef("");
   const q = question(workspace);
   const current = positionOf(session);
@@ -107,7 +128,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
 
   useKeys(Boolean(shown?.to), key => {
     if (!["Enter", "ArrowRight", " "].includes(key)) return false;
-    setResult(null);
+    advance();
     return true;
   });
 
@@ -149,26 +170,51 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const view = shown?.q ?? q;
   if (!view) return header;
   return <>{header}
-    <section className="panel question" data-gold={view.gold || undefined} data-examples={Boolean(view.card.examples?.trim()) || undefined} aria-labelledby="prompt"
-      onPointerDown={event => { swipeStart.current = shown && shown.to ? event.clientX : null; }}
+    <section ref={panel} className="panel question" data-gold={view.gold || undefined} data-examples aria-labelledby="prompt"
+      onPointerDown={event => {
+        if (!shown?.to || leaving.current || !event.isPrimary) return;
+        swipe.current = { id: event.pointerId, x: event.clientX, dx: 0 };
+      }}
+      onPointerMove={event => {
+        const current = swipe.current;
+        if (!current || current.id !== event.pointerId || !panel.current) return;
+        current.dx = event.clientX - current.x;
+        // The card follows the finger, so the swipe is visible before it counts.
+        if (Math.abs(current.dx) > 6) panel.current.style.transform = "translateX(" + current.dx + "px) rotate(" + current.dx / 40 + "deg)";
+      }}
       onPointerUp={event => {
-        // On a result, a swipe to the left continues, like turning a page.
-        if (swipeStart.current !== null && swipeStart.current - event.clientX > 70) setResult(null);
-        swipeStart.current = null;
-      }}>
-      <ExamplesButton key={shown ? shown.from : current} question={view.prompt} examples={view.card.examples} />
+        const current = swipe.current;
+        swipe.current = null;
+        if (!current || current.id !== event.pointerId || !panel.current) return;
+        if (Math.abs(current.dx) > 70) advance(current.dx < 0 ? -1 : 1);
+        else if (current.dx) {
+          const element = panel.current;
+          element.animate?.([{ transform: element.style.transform }, { transform: "translateX(0px)" }], { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
+          element.style.transform = "";
+        }
+      }}
+      onPointerCancel={() => { swipe.current = null; if (panel.current) panel.current.style.transform = ""; }}>
+      <ExamplesButton key={shown ? shown.from : current} card={{ cardId: view.card.id, question: view.prompt, answer: view.answer, examples: view.card.examples }} revealed={Boolean(shown)} />
       <div className="question-content" key={"prompt:" + (shown ? shown.from : current)}>
         {view.gold && <span className="question-top"><span className="gold-badge"><Icon kind="sparkle" filled /> Gold · zählt doppelt</span></span>}
         <h2 id="prompt" className="prompt" data-size={textSize(view.prompt)}>{view.prompt}</h2>
       </div>
       {view.kind === "choice"
-        ? <Choices q={view} shown={shown} busy={busy} onPick={option => void submit(option)} onNext={() => setResult(null)} />
+        ? <Choices q={view} shown={shown} busy={busy} onPick={option => void submit(option)} onNext={() => advance()} />
         : shown ? <Frame zone={<CorrectAnswer submitted={shown.submitted} answer={view.answer} mastered={shown.mastered} />}
-            actions={<><span /><NextButton disabled={shown.to === null} onClick={() => setResult(null)} /></>} />
+            actions={<><span /><NextButton disabled={shown.to === null} onClick={() => advance()} /></>} />
           : q && <AnswerArea key={"answer:" + current} storageKey={draftKey + ":" + current} q={q} busy={busy} direction={session.direction} submit={submit}
               intervals={q.kind === "rate" ? previewIntervals(workspace, q.card.id, session.direction, now) : undefined}
               rate={async grade => Boolean(await mutate({ type: "rate", sessionId: session.id, cursor: session.cursor, grade }))} />}
     </section></>;
+}
+
+/** After a wrong answer, the first own example shows the word in use, the moment it helps most. */
+function ExampleHint({ examples, answer }: { examples?: string; answer: string }) {
+  // The line that uses the answer shows it in context; otherwise the first line.
+  const lines = exampleLines(examples);
+  const line = lines.find(item => clozeFrom(item, answer)) ?? lines[0];
+  return line ? <p className="answer-example"><Icon kind="cards" size="s" /> {line}</p> : null;
 }
 
 function Frame({ zone, actions }: { zone: ReactNode; actions: ReactNode }) {
@@ -202,7 +248,7 @@ function Choices({ q, shown, busy, onPick, onNext }: { q: Question; shown: Resul
           : <Key>{String(i + 1)}</Key>}
         <span data-size={textSize(option)}>{option}</span>
       </button>;
-    })}</div>}
+    })}{shown && !shown.correct && <ExampleHint examples={q.card.examples} answer={q.answer} />}</div>}
     actions={shown ? <><span className={"action-hint " + (shown.correct ? "rating-known" : "rating-again")} aria-label={shown.correct ? "Richtig" : "Noch nicht ganz"}><Icon kind={shown.correct ? "check" : "close"} />
       {shown.mastered && <span className="mastered-stamp" aria-label="Gemeistert"><Icon kind="sparkle" filled /></span>}</span><NextButton disabled={shown.to === null} onClick={onNext} /></>
       : <><span /><span /></>} />;
@@ -294,7 +340,8 @@ function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: 
   if (q.kind === "write") return <Frame
     zone={<>
       <div className="answer-box" data-result="incorrect"><span className="answer-label"><Icon kind="close" /><span className="sr-only">Deine Antwort</span></span><p data-size={textSize(answer)}>{answer.trim() || "Keine Antwort"}</p></div>
-      <div className="answer-box" data-result="correct"><span className="answer-label"><Icon kind="check" /><span className="sr-only">Musterantwort</span></span><p data-size={textSize(q.answer)}>{q.answer}</p></div>
+      <div className="answer-box" data-result="correct"><span className="answer-label"><Icon kind="check" /><span className="sr-only">Musterantwort</span></span><p data-size={textSize(q.answer)}>{q.answer}</p>
+        <ExampleHint examples={q.card.examples} answer={q.answer} /></div>
     </>}
     actions={<>{answer.trim() ? <button className="button" disabled={busy} onClick={() => void submit(answer, true, false)}>Sinngemäss richtig</button> : <span />}
       <button className="button primary" disabled={busy} autoFocus={finePointer()} aria-label="Weiter" onClick={() => void submit(answer, false, false)}><Icon kind="forward" /></button></>} />;

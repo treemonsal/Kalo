@@ -353,3 +353,17 @@ test("Falsche Antworten passen zur Frageart, die richtige ist nicht an der Form 
   const options = choices(deck, deck.cards[0], "front", "x");
   assert.deepEqual(new Set(options), new Set(cards.slice(0, 4).map(card => card.back)));
 });
+
+test("Beispiel übernehmen und Lückentext-Karte anlegen, ohne Doppelte", () => {
+  let s = apply(empty(), { type: "save", title: "Büro", cards: [{ front: "die Rechnung", back: "invoice", examples: "Wir zahlen die Rechnung." }] }, now);
+  const deck = s.decks[0];
+  const card = deck.cards[0];
+  s = apply(s, { type: "addExample", deckId: deck.id, cardId: card.id, example: "die Rechnung bezahlen" }, now);
+  s = apply(s, { type: "addExample", deckId: deck.id, cardId: card.id, example: "die Rechnung bezahlen" }, now);
+  assert.equal(s.decks[0].cards[0].examples, "Wir zahlen die Rechnung.\ndie Rechnung bezahlen");
+  s = apply(s, { type: "addCard", deckId: deck.id, front: "Wir zahlen ___.", back: "die Rechnung" }, now);
+  s = apply(s, { type: "addCard", deckId: deck.id, front: "Wir zahlen ___.", back: "die Rechnung" }, now);
+  assert.equal(s.decks[0].cards.length, 2);
+  assert.equal(s.decks[0].cards[1].back, "die Rechnung");
+  assert.throws(() => apply(s, { type: "addExample", deckId: deck.id, cardId: crypto.randomUUID(), example: "x" }, now));
+});

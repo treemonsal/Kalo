@@ -426,7 +426,8 @@ details[open] > summary { margin-bottom: var(--space-3); }
 }
 .card-stage[data-mode="idle"] .card-under { transition: transform var(--t-view) var(--ease-settle), opacity var(--t-view) ease; }
 .card-under .card-face { box-shadow: none; }
-.card-under .card-copy { opacity: calc(.35 + .65 * var(--progress)); }
+/* The next card stays blank at rest and while the current one turns; its question only appears as the current card is swiped away. */
+.card-under :is(.card-copy, .eyebrow) { opacity: var(--progress); }
 .flashcard {
   position: relative; z-index: 1; display: grid; width: 100%; padding: 0; border: 0; background: none; color: var(--ink); text-align: left;
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -518,7 +519,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .mastery i[data-level="3"] { background: var(--known-ink); }
 .question { display: grid; gap: var(--space-5); width: min(100%, 720px); margin-inline: auto; padding: clamp(var(--space-5), 4vw, var(--space-7)); }
 .question-content { display: grid; gap: var(--space-3); animation: question-in var(--t-base) var(--ease-settle) both; }
-@keyframes question-in { from { opacity: 0; transform: translateX(10px); } }
+@keyframes question-in { from { opacity: 0; transform: translateX(28px); } }
 .prompt { font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer-zone { display: grid; align-content: start; gap: var(--space-3); min-height: 9.5rem; }
 .answer-field textarea { font-size: max(16px, 1.0625rem); }
@@ -821,8 +822,8 @@ details[open] > summary { margin-bottom: var(--space-3); }
 
 .icon-button.go { color: var(--accent); }
 .swipe-hint { color: var(--faint); }
-/* On touch screens swiping moves through the cards; the arrows only help with a mouse. */
-@media (hover: none) { .card-controls .icon-button { visibility: hidden; } }
+/* On touch screens swiping moves through the cards; the arrows only help with a mouse. Examples sit on the card itself. */
+@media (hover: none) { .card-controls { display: none; } }
 .mode-count { font-size: var(--fs-callout) !important; font-weight: 600; font-variant-numeric: tabular-nums; }
 .label-icon { display: inline-flex; align-items: center; gap: 6px; }
 .import-card {
@@ -1034,20 +1035,6 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 @keyframes streak-roll { from { transform: translateY(0); } to { transform: translateY(-50%); } }
 
 /* A one-card handoff, presented as a dismissible bottom sheet. */
-.card-explain-sheet { position: fixed; inset: auto 0 0; width: min(100%, 560px); max-width: 100%; max-height: min(80dvh, 600px); margin: 0 auto; padding: 0 0 max(20px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-bottom: 0; border-radius: 26px 26px 0 0; background: var(--paper); color: var(--ink); box-shadow: 0 -16px 50px #00000030; overflow-y: auto; overscroll-behavior: contain; animation: explain-in 300ms var(--ease-settle); transition: transform 240ms var(--ease-settle); }
-.card-explain-sheet::backdrop { background: #00000065; animation: fade-in 200ms ease; }
-.card-explain-sheet[open] { display: flex; flex-direction: column; overflow: hidden; }
-.card-explain-sheet .sheet-grabber { flex: none; }
-.card-explain-sheet[data-dragging="true"] { animation: none; transition: none; }
-.card-explain-sheet[data-closing="true"] { animation: explain-out 220ms var(--ease-exit) forwards; }
-.card-explain-sheet[data-closing="true"]::backdrop { animation: fade-out 220ms ease forwards; }
-.sheet-grabber { display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: transparent; touch-action: none; cursor: grab; }
-.sheet-grabber > span { width: 36px; height: 4px; border-radius: 4px; background: var(--line-strong); }
-.explain-heading { flex: none; margin: 0; padding: 0 var(--space-5) var(--space-3); }
-.explain-heading h2 { margin: 0; font-size: var(--fs-title); }
-.explain-body { display: grid; gap: var(--space-4); min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--space-5) var(--space-3); }
-.explain-body .section-head { margin: 0; }
-.explain-terms { display: grid; gap: var(--space-5); overflow-wrap: anywhere; }
 .explain-term h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: var(--fs-title); letter-spacing: -.02em; }
 .explain-term h3 small { color: var(--faint); font-size: var(--fs-caption); font-weight: 600; letter-spacing: .03em; }
 .explain-term ol { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
@@ -1057,7 +1044,6 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .explain-source { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); font-size: var(--fs-caption); }
 .explain-source a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
 .explain-missing { margin: 0; color: var(--muted); font-size: var(--fs-footnote); }
-.explain-license { color: var(--faint); font-size: var(--fs-caption); justify-self: start; }
 .paused-rounds { margin-bottom: var(--space-4); color: var(--muted); }
 .paused-rounds > summary { gap: var(--space-2); }
 .paused-rounds ul { list-style: none; margin: 0; padding: 0; }
@@ -1068,19 +1054,10 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .explain-loading { display: grid; gap: var(--space-2); padding-block: var(--space-3); }
 .explain-loading span { display: block; height: 14px; border-radius: 5px; background: var(--soft); }
 .explain-loading span:last-child { width: 65%; }
-.explain-actions { display: grid; flex: none; gap: var(--space-2); padding: var(--space-3) var(--space-5) 0; border-top: 1px solid var(--line); }
-.explain-more { margin-top: var(--space-2); }
-.explain-more summary { display: inline-flex; align-items: center; gap: 3px; min-height: 32px; list-style: none; color: var(--muted); font-size: var(--fs-footnote); }
-.explain-more summary::-webkit-details-marker { display: none; }
-.explain-more[open] summary .icon-svg { transform: rotate(90deg); }
-.explain-hint { margin: 0; font-size: var(--fs-footnote); text-align: center; }
-@keyframes explain-in { from { opacity: .7; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
-@keyframes explain-out { to { opacity: 0; transform: translateY(100%); } }
 @media (prefers-reduced-motion: reduce) {
   .streak-celebration { animation: none !important; opacity: 1; transform: none; }
   .fire-outer, .fire-inner { animation: none; }
   .streak-count-track { animation: none; transform: translateY(-50%); }
-  .card-explain-sheet, .card-explain-sheet[data-closing="true"] { animation: none; transition: none; }
   .due-alert:active { transform: none; }
 }
 .hero.compact { justify-content: flex-start; gap: 28px; padding: 4px var(--space-2); background: transparent; border: 0; margin-bottom: var(--space-4); }
@@ -1102,3 +1079,13 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .shell[data-view="study"] .study-top { padding-right: 44px; }
 .shell[data-view="study"]:has(.sync-status) .study-top { padding-right: 88px; }
 .grow-field { min-height: 52px; max-height: 40vh; resize: none; overflow-y: auto; }
+
+/* Examples card: own lines with a cloze action, then the dictionary. */
+.example-lines { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); padding: 0; list-style: none; }
+.example-lines li { display: grid; gap: 2px; justify-items: start; line-height: 1.5; }
+.examples-copy .explain-term { display: grid; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.examples-copy .explain-term + .explain-term { margin-top: var(--space-3); }
+.examples-copy .explain-term p { margin: 0; line-height: 1.5; }
+.examples-copy .explain-source { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); font-size: var(--fs-caption); }
+.examples-card .text-button.small { min-height: 32px; padding: 2px 0; font-size: var(--fs-footnote); }
+.answer-example { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--fs-footnote); line-height: 1.45; }

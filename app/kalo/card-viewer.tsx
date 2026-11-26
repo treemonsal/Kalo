@@ -21,13 +21,13 @@ type Props = {
   onUndo: (sortId: string) => Promise<UndoResult>;
   onProblem: (problem: Problem | null) => void;
   problem?: Problem | null;
-  onBack: () => void; onHome: () => void; onChat: (cardId: string) => void;
+  onBack: () => void; onHome: () => void;
   onBookmark: (activity: LastActivity) => void;
   /** Saves where this pass stands; immediate when leaving the card mode. */
   onProgress: (snapshot: PassSnapshot, immediate?: boolean) => void;
 };
 
-export default function CardViewer({ confirm, deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, problem, onBack, onHome, onChat, onBookmark, onProgress }: Props) {
+export default function CardViewer({ confirm, deck, start, direction, workspace, now, onStep, onSort, onUndo, onProblem, problem, onBack, onHome, onBookmark, onProgress }: Props) {
   const [order, setOrder] = useState(start.order);
   const [index, setIndex] = useState(start.index);
   const [flipped, setFlipped] = useState(start.flipped);
@@ -85,9 +85,12 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
   }
 
   function step(amount: number) {
-    setIndex(current => Math.max(0, Math.min(visible.length - 1, current + amount)));
+    const target = Math.max(0, Math.min(visible.length - 1, position + amount));
+    if (target === position) return;
+    setIndex(target);
     setFlipped(false);
-    setEntry(null);
+    // The arrows move through the stack like a swipe: the next card slides in from the right, the previous from the left.
+    setEntry({ key: visible[target], from: amount > 0 ? 1 : -1 });
   }
 
   function restart(ids: string[]) {
@@ -220,7 +223,7 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       </div>
       <div className="card-controls">
         <button className="icon-button" disabled={position === 0} aria-label="Vorherige Karte" title="Vorherige Karte" onClick={() => step(-1)}><Icon kind="chevronLeft" /></button>
-        <button className="text-button" aria-label="Karte mit ChatGPT erklären lassen" onClick={() => onChat(card.id)}><Icon kind="chat" /> Erklären</button>
+        <span />
         <button className="icon-button" disabled={position === visible.length - 1} aria-label="Nächste Karte ohne Bewertung" title="Nächste Karte" onClick={() => step(1)}><Icon kind="chevronRight" /></button>
       </div>
     </>}
