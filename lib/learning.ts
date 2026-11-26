@@ -328,6 +328,12 @@ function schedule(existing: Review | undefined, id: string, grade: Grade, now: n
   };
 }
 
+/** How long until a review card comes back for each grade (1 to 4), in milliseconds. Changes nothing. */
+export function previewIntervals(state: Workspace, cardId: string, direction: Direction, now: number) {
+  const id = reviewKey(cardId, direction);
+  return ([1, 2, 3, 4] as Grade[]).map(grade => Date.parse(schedule(state.reviews[id], id, grade, now).due) - now);
+}
+
 function clearCard(state: Workspace, id: string) {
   for (const direction of ["front", "back"] as const) {
     delete state.reviews[reviewKey(id, direction)];

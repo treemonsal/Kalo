@@ -68,13 +68,13 @@ export default function DuelView({ token, mutate, onHome, onShare }: Props) {
     return () => window.removeEventListener("keydown", key);
   });
 
-  if (failed) return <EmptyState icon="swords" title="Duell nicht verfügbar" text={failed}><button className="button primary" onClick={onHome}>Zur Bibliothek</button></EmptyState>;
+  if (failed) return <EmptyState icon="swords" title="Duell nicht verfügbar" text={failed}><button className="button primary" onClick={onHome}>Zu Home</button></EmptyState>;
   if (!duel) return <div className="skeleton block" aria-label="Duell wird geladen" />;
   const question = duel.questions[index];
   const correct = answers.filter((answer, i) => answer === duel.questions[i]?.answer).length;
 
   return <section className="duel">
-    <div className="view-bar"><button className="text-button" aria-label="Zurück zur Bibliothek" onClick={onHome}><Icon kind="back" /> Bibliothek</button>
+    <div className="view-bar"><button className="text-button" aria-label="Zurück zu Home" onClick={onHome}><Icon kind="back" /> Home</button>
       {phase === "play" && <span className="duel-clock" aria-live="off"><Icon kind="bolt" /> {seconds(elapsed)}</span>}</div>
     <header className="page-head"><div><span className="eyebrow">Duell · {duel.ownerName}</span><h1>{duel.title}</h1></div></header>
 
@@ -105,7 +105,7 @@ export default function DuelView({ token, mutate, onHome, onShare }: Props) {
       {!duel.results.length && <p className="muted">Ergebnis wird gespeichert …</p>}
       <div className="actions">
         <button className="button primary" onClick={() => onShare(token, duel.title)}><Icon kind="share" /> Herausfordern</button>
-        <button className="button" onClick={onHome}>Zur Bibliothek</button>
+        <button className="button" onClick={onHome}>Zu Home</button>
       </div>
     </section>}
   </section>;

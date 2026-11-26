@@ -110,7 +110,7 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     setFlipped(false);
     if (position + 1 < visible.length) setIndex(position + 1);
     else setSorted(true);
-    setAnnounce(rating ? "Ich kann das" : "Später üben");
+    setAnnounce(rating ? "Kann ich" : "Noch nicht");
     play("swipe");
     void onSort(card.id, rating, swipe.id).then(saved => {
       if (saved) return;
@@ -178,7 +178,8 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     : <section className="card-viewer">
     <header className="card-toolbar">
       <button className="icon-button" aria-label="Zurück zum Set" title="Zurück zum Set" onClick={leave}><Icon kind="back" /></button>
-      <div className="toolbar-title"><h1>{deck.title}</h1><span className="counter">{sorted ? visible.length : position + 1} von {visible.length}</span></div>
+      {/* Same layout as every learning mode: mode and set on top, bar and counter below. */}
+      <div className="toolbar-title"><h1>Karten</h1><span className="counter">{deck.title}</span></div>
       <button className="icon-button" aria-label="Von vorne beginnen" title="Von vorne" disabled={sorted || position === 0} onClick={async () => {
         if (await confirm({ title: "Von vorne beginnen?", message: "Der Durchgang startet wieder bei Karte 1. Deine Bewertungen bleiben gespeichert.", confirm: "Von vorne" })) startOver();
       }}><Icon kind="repeat" /></button>
@@ -187,7 +188,10 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       }}><Icon kind="shuffle" /></button>
     </header>
     {problem && <ErrorBanner problem={problem} onDismiss={() => onProblem(null)} />}
-    <div className="meter" aria-hidden="true"><i style={{ width: ((sorted ? visible.length : position) / Math.max(1, visible.length)) * 100 + "%" }} /></div>
+    <div className="study-progress">
+      <div className="meter" aria-hidden="true"><i style={{ width: ((sorted ? visible.length : position) / Math.max(1, visible.length)) * 100 + "%" }} /></div>
+      <span>{sorted ? visible.length : position + 1} von {visible.length}</span>
+    </div>
     <span className="sr-only" role="status">{announce}</span>
 
     {sorted || !card ? <section className="panel finish">
@@ -197,7 +201,7 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       <div className="actions">
         {later.length > 0 ? <button className="button primary" autoFocus onClick={() => restart(later)}><Icon kind="repeat" /> {later.length === 1 ? "Eine Karte" : later.length + " Karten"} nochmals</button>
           : <NextStepActions step={nextStep(workspace, now, deck.id)} goalReached={dayStats(workspace, dayOf(now)).points >= goalOf(workspace)} onStep={onStep} onDone={onHome} />}
-        <button className="button" onClick={onHome}>Zur Bibliothek</button>
+        <button className="button" onClick={onHome}>Zu Home</button>
         <button className="button" onClick={() => restart(visible)}><Icon kind="shuffle" /> Neu mischen</button>
         {undoButton}
       </div>
@@ -207,12 +211,12 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
         hint={position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
       <div className="swipe-status">
-        <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>
+        {position === 0 ? <span className="swipe-hint">Wischen: links noch nicht, rechts kann ich</span> : <span />}
         {undoButton}
       </div>
       <div className="swipe-actions">
-        <button className="button rate-again" onClick={() => flashcard.current?.fling(false)}><Icon kind="repeat" /> Später üben <Key>1</Key></button>
-        <button className="button rate-known" onClick={() => flashcard.current?.fling(true)}><Icon kind="check" /> Ich kann das <Key>2</Key></button>
+        <button className="button rate-again" onClick={() => flashcard.current?.fling(false)}><Icon kind="repeat" /> Noch nicht <Key>1</Key></button>
+        <button className="button rate-known" onClick={() => flashcard.current?.fling(true)}><Icon kind="check" /> Kann ich <Key>2</Key></button>
       </div>
       <div className="card-controls">
         <button className="icon-button" disabled={position === 0} aria-label="Vorherige Karte" title="Vorherige Karte" onClick={() => step(-1)}><Icon kind="chevronLeft" /></button>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
-import { examIn } from "../../lib/progress";
+import { dayOf, dueCards, reviewQueue, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
+import { examIn, sitting } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
 
 type Props = {
@@ -15,13 +15,25 @@ type Props = {
   shareToken?: string; onShare: () => void; onDuel: () => void;
 };
 
+/** When nothing is due: «später» (today), «ab morgen» or «in 3 Tagen», by calendar day in Zurich. Short enough for one line in the tile. */
+function whenDue(at: number, now: number) {
+  const days = Math.round((Date.parse(dayOf(at) + "T12:00:00Z") - Date.parse(dayOf(now) + "T12:00:00Z")) / 86_400_000);
+  return days <= 0 ? "später" : days === 1 ? "ab morgen" : "in " + days + " Tagen";
+}
+
 export default function DeckView(props: Props) {
   const { workspace, deck, time, busy, direction, filter, writing } = props;
   const visible = deck.cards.filter(item => filter === "all" || (filter === "starred"
     ? item.starred : workspace.mistakes[deck.id + ":" + direction]?.includes(item.id)));
   const ready = reviewQueue(workspace, visible, direction, time).length;
   const due = dueCards(workspace, visible, direction, time).length;
-  const done = deck.cards.filter(card => secure(workspace, card.id, direction)).length;
+  // The same rule as the tile on Home and in the profile, so a set never shows two different numbers.
+  const done = sitting(workspace, deck);
+  // When the next card of this side comes due, for «0 fällig · morgen».
+  const next = visible.reduce((soonest, card) => {
+    const at = Date.parse(workspace.reviews[card.id + ":" + direction]?.due ?? "");
+    return at > time && at < soonest ? at : soonest;
+  }, Infinity);
   const open = visible.filter(card => (workspace.progress[card.id + ":" + direction]?.streak ?? 0) < 2).length;
   const starred = deck.cards.filter(card => card.starred).length;
   const saved = workspace.passes?.[deck.id + ":" + direction];
@@ -37,7 +49,7 @@ export default function DeckView(props: Props) {
   }, [props.shareToken]);
   const allModes: { mode: "cards" | "learn" | "cram" | "review"; icon: IconKind; title: string; text: string }[] = [
     { mode: "learn", icon: "target", title: "Lernen", text: open ? Math.min(open, 8) + " neu" : "0 neu" },
-    { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : ready ? ready + " bereit" : "0" },
+    { mode: "review", icon: "repeat", title: "Wiederholen", text: due ? due + " fällig" : Number.isFinite(next) ? whenDue(next, time) : "0 fällig" },
     { mode: "cram", icon: "bolt", title: "Pauken", text: String(visible.length) },
     { mode: "cards", icon: "cards", title: "Karten", text: resume ? "weiter bei " + (resume.index + 1) + " von " + visible.length : String(visible.length) },
   ];

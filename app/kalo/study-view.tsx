@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MAX_LEARN_ROUNDS, dayOf, matches, question, secure, type Workspace } from "../../lib/learning";
+import { MAX_LEARN_ROUNDS, dayOf, matches, previewIntervals, question, secure, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
 import { GoalBanner, NextStepActions } from "./progress-ui";
 import { play } from "./sound";
@@ -17,7 +17,8 @@ type Question = NonNullable<ReturnType<typeof question>>;
 type Result = { q: Question; submitted: string; correct: boolean; from: string; to: string | null; mastered?: boolean };
 
 const modeTitle = { learn: "Lernen", cram: "Pauken", review: "Wiederholen" };
-const grades = ["Nochmal", "Schwer", "Gut", "Einfach"] as const;
+// One vocabulary everywhere: «Noch nicht» (orange) and «Kann ich» (green); the review adds two steps in between.
+const grades = ["Noch nicht", "Schwer", "Gut", "Einfach"] as const;
 const normal = (text: string) => text.normalize("NFC").toLocaleLowerCase("de-CH").trim().replace(/\s+/g, " ");
 
 export function positionOf(session: Session | null | undefined) {
@@ -165,12 +166,13 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
         : shown ? <Frame zone={<CorrectAnswer submitted={shown.submitted} answer={view.answer} mastered={shown.mastered} />}
             actions={<><span /><NextButton disabled={shown.to === null} onClick={() => setResult(null)} /></>} />
           : q && <AnswerArea key={"answer:" + current} storageKey={draftKey + ":" + current} q={q} busy={busy} direction={session.direction} submit={submit}
+              intervals={q.kind === "rate" ? previewIntervals(workspace, q.card.id, session.direction, now) : undefined}
               rate={async grade => Boolean(await mutate({ type: "rate", sessionId: session.id, cursor: session.cursor, grade }))} />}
     </section></>;
 }
 
 function Frame({ zone, actions }: { zone: ReactNode; actions: ReactNode }) {
-  return <><div className="answer-zone">{zone}</div><div className="action-bar">{actions}</div></>;
+  return <><div className="answer-zone">{zone}</div>{actions && <div className="action-bar">{actions}</div>}</>;
 }
 
 function NextButton({ disabled, onClick }: { disabled?: boolean; onClick: () => void }) {
@@ -210,7 +212,28 @@ type AnswerProps = {
   q: Question; busy: boolean; direction: Session["direction"]; storageKey: string;
   submit: (value: string, self?: boolean, show?: boolean) => Promise<boolean>;
   rate: (grade: 1 | 2 | 3 | 4) => Promise<boolean>;
+  /** For review cards: how long until the card comes back for each grade. */
+  intervals?: number[];
 };
+
+/** Fits a text field to its content, so a one-word answer needs one line and a sentence gets room. */
+function grow(field: HTMLTextAreaElement | null) {
+  if (!field) return;
+  field.style.height = "auto";
+  field.style.height = field.scrollHeight + 2 + "px";
+}
+
+/** «10 Min», «1 Tag», «3 Wochen»: short enough to fit under a rating button. */
+function span(ms: number) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return minutes + " Min";
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours + " Std";
+  const days = Math.round(hours / 24);
+  if (days < 14) return days === 1 ? "1 Tag" : days + " Tage";
+  if (days < 60) return Math.round(days / 7) + " Wochen";
+  return Math.round(days / 30) + " Monate";
+}
 
 type AnswerDraft = { answer: string; phase: "input" | "wrong" | "revealed" };
 function isAnswerDraft(value: unknown): value is AnswerDraft {
@@ -219,7 +242,7 @@ function isAnswerDraft(value: unknown): value is AnswerDraft {
 }
 
 /** Holds the typed answer and the revealed state. It remounts for every new question. */
-function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: saveRate }: AnswerProps) {
+function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: saveRate, intervals }: AnswerProps) {
   const [draft, setDraft] = useState<AnswerDraft>(() => parseStored(readStored(storageKey), isAnswerDraft) ?? { answer: "", phase: "input" });
   const currentDraft = useRef(draft);
   const sending = useRef(false);
@@ -257,7 +280,9 @@ function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: 
 
   if (q.kind === "write" && phase === "input") return <Frame
     zone={<label className="answer-field"><span className="sr-only">Deine Antwort</span>
-      <textarea rows={3} maxLength={3000} value={answer} placeholder="Deine Antwort" autoFocus={finePointer()}
+      {/* One line for the usual short answer; the field grows with longer text. */}
+      <textarea rows={1} maxLength={3000} value={answer} placeholder="Deine Antwort" autoFocus={finePointer()} className="grow-field"
+        ref={grow} onInput={event => grow(event.currentTarget)}
         autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="done"
         onChange={event => update({ answer: event.target.value })}
         onKeyDown={event => {
@@ -274,16 +299,18 @@ function AnswerArea({ q, busy, direction, storageKey, submit: saveAnswer, rate: 
     actions={<>{answer.trim() ? <button className="button" disabled={busy} onClick={() => void submit(answer, true, false)}>Sinngemäss richtig</button> : <span />}
       <button className="button primary" disabled={busy} autoFocus={finePointer()} aria-label="Weiter" onClick={() => void submit(answer, false, false)}><Icon kind="forward" /></button></>} />;
 
+  // One way to reveal: the whole answer area is the button.
   if (phase === "input") return <Frame
-    zone={<button type="button" className="answer-box placeholder" onClick={() => setPhase("revealed")}><Icon kind="eye" size="l" /><span>Tippen zum Aufdecken</span></button>}
-    actions={<><span /><button className="button primary" autoFocus={finePointer()} onClick={() => setPhase("revealed")}>Antwort aufdecken <Key>↵</Key></button></>} />;
+    zone={<button type="button" className="answer-box placeholder" autoFocus={finePointer()} onClick={() => setPhase("revealed")}><Icon kind="eye" size="l" /><span>Antwort aufdecken <Key>↵</Key></span></button>}
+    actions={null} />;
 
   return <Frame
     zone={<div className="answer-box"><span className="answer-label">Musterantwort</span><p data-size={textSize(q.answer)}>{q.answer}</p></div>}
     actions={q.kind === "rate"
-      ? <div className="grades">{grades.map((label, i) => <button key={label} className="button" data-grade={i + 1} disabled={busy} onClick={() => rate((i + 1) as 1 | 2 | 3 | 4)}><Key>{String(i + 1)}</Key>{label}</button>)}</div>
+      ? <div className="grades">{grades.map((label, i) => <button key={label} className="button" data-grade={i + 1} disabled={busy} onClick={() => rate((i + 1) as 1 | 2 | 3 | 4)}
+          aria-label={label + (intervals ? ", wieder in " + span(intervals[i]) : "")}><span className="grade-label"><Key>{String(i + 1)}</Key>{label}</span>{intervals && <small className="grade-next">{span(intervals[i])}</small>}</button>)}</div>
       : <><button className="button" disabled={busy} onClick={() => void submit("", false, false)}><Icon kind="repeat" /> Noch nicht</button>
-        <button className="button primary" disabled={busy} autoFocus={finePointer()} onClick={() => void submit(answer, true, false)}><Icon kind="check" /> Wusste ich</button></>} />;
+        <button className="button primary" disabled={busy} autoFocus={finePointer()} onClick={() => void submit(answer, true, false)}><Icon kind="check" /> Kann ich</button></>} />;
 }
 
 type FinishProps = {

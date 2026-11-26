@@ -410,8 +410,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .toolbar-title { display: grid; flex: 1; min-width: 0; }
 .toolbar-title h1 { font-size: var(--fs-headline); font-weight: 600; letter-spacing: -.01em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .counter { color: var(--muted); font-size: var(--fs-footnote); font-variant-numeric: tabular-nums; }
-.card-viewer > .meter { margin-bottom: var(--space-4); height: 4px; }
-.card-viewer > .meter i { background: var(--accent); }
+.study-progress > .meter { flex: 1; }
 
 /* The stack: the next card waits underneath and grows into place while the top card leaves. */
 .card-stage {
@@ -495,14 +494,14 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .focus-dialog::backdrop { background: transparent; }
 .focus-dialog .card-viewer { display: flex; flex-direction: column; width: min(100%, 860px); height: 100%; min-height: 0; }
 .focus-dialog .card-viewer > :not(.card-stage, .finish) { flex-shrink: 0; }
-.focus-dialog .card-viewer > .meter { flex: 0 0 4px; }
+.focus-dialog .card-viewer > .study-progress { flex: none; }
 .focus-dialog .card-stage { --card-height: 100%; flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .focus-dialog :is(.card-under, .flashcard, .card-faces, .card-face) { height: 100%; min-height: 0; }
 .focus-dialog .card-face { grid-template-rows: auto minmax(0, 1fr); }
 .focus-dialog .card-copy { min-height: 0; }
 .focus-dialog .finish { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 @media (max-height: 600px) {
-  .focus-dialog .card-toolbar, .focus-dialog .card-viewer > .meter { margin-bottom: var(--space-2); }
+  .focus-dialog .card-toolbar, .focus-dialog .card-viewer > .study-progress { margin-bottom: var(--space-2); }
   .focus-dialog .swipe-status { min-height: 32px; margin-block: var(--space-1); font-size: var(--fs-footnote); }
   .focus-dialog .swipe-actions .button { min-height: 44px; padding: 8px 10px; }
   .focus-dialog .card-controls { margin-top: var(--space-1); }
@@ -522,7 +521,7 @@ details[open] > summary { margin-bottom: var(--space-3); }
 @keyframes question-in { from { opacity: 0; transform: translateX(10px); } }
 .prompt { font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer-zone { display: grid; align-content: start; gap: var(--space-3); min-height: 9.5rem; }
-.answer-field textarea { min-height: 9.5rem; font-size: max(16px, 1.0625rem); }
+.answer-field textarea { font-size: max(16px, 1.0625rem); }
 .answer-box {
   display: grid; gap: 4px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--soft);
   animation: answer-in var(--t-base) var(--ease-settle) both;
@@ -556,8 +555,11 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .action-bar > :last-child { margin-left: auto; }
 .action-hint { color: var(--muted); font-size: var(--fs-footnote); font-weight: 600; }
 .grades { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); width: 100%; }
-.grades .button { width: 100%; }
-.grades [data-grade="1"] { color: var(--wrong-ink); }
+.grades .button { flex-direction: column; gap: 2px; width: 100%; min-height: 56px; }
+.grade-label { display: inline-flex; align-items: center; gap: var(--space-2); }
+.grade-next { color: var(--muted); font-size: var(--fs-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
+/* «Noch nicht» is orange everywhere; red only marks a wrong typed or chosen answer. */
+.grades [data-grade="1"] { color: var(--again-ink); }
 .grades [data-grade="4"] { color: var(--known-ink); }
 .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--space-3); width: 100%; margin-top: var(--space-2); }
 .summary > div { padding: var(--space-3) var(--space-4); border-radius: var(--radius-control); background: var(--known-bg); }
@@ -819,7 +821,8 @@ details[open] > summary { margin-bottom: var(--space-3); }
 
 .icon-button.go { color: var(--accent); }
 .swipe-hint { color: var(--faint); }
-.swipe-hint .hint-gap { width: var(--space-4); }
+/* On touch screens swiping moves through the cards; the arrows only help with a mouse. */
+@media (hover: none) { .card-controls .icon-button { visibility: hidden; } }
 .mode-count { font-size: var(--fs-callout) !important; font-weight: 600; font-variant-numeric: tabular-nums; }
 .label-icon { display: inline-flex; align-items: center; gap: 6px; }
 .import-card {
@@ -840,7 +843,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .donut-track { fill: none; stroke: var(--line); stroke-width: 14; }
 .donut-segment { fill: none; stroke-width: 14; stroke-linecap: butt; animation: donut-draw 900ms var(--ease-settle) both; }
 .donut-segment.donut-known { stroke: var(--known-ink); }
-.donut-segment.donut-later { stroke: var(--wrong-ink); animation-delay: 120ms; }
+.donut-segment.donut-later { stroke: var(--again-ink); animation-delay: 120ms; }
 .donut-segment.donut-skipped { stroke: var(--line-strong); animation-delay: 200ms; }
 @keyframes donut-draw { from { stroke-dasharray: 0 calc(var(--size) + var(--rest)); } }
 .donut-label { position: relative; display: grid; justify-items: center; line-height: 1.05; }
@@ -854,8 +857,8 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .donut-legend strong { font-size: var(--fs-title); font-weight: 600; font-variant-numeric: tabular-nums; }
 .donut-legend .donut-known i { background: var(--known-ink); }
 .donut-legend .donut-known strong { color: var(--known-ink); }
-.donut-legend .donut-later i { background: var(--wrong-ink); }
-.donut-legend .donut-later strong { color: var(--wrong-ink); }
+.donut-legend .donut-later i { background: var(--again-ink); }
+.donut-legend .donut-later strong { color: var(--again-ink); }
 .donut-legend .donut-skipped i { background: var(--line-strong); }
 @media (prefers-reduced-motion: reduce) { .donut-segment { animation: none; } }
 
@@ -1085,3 +1088,17 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .hero.compact .hero-goal > .icon-svg { color: var(--muted); }
 .hero.compact .hero-goal[data-done="true"] > .icon-svg { color: var(--known-ink); }
 .metric-goal { color: var(--muted); font-weight: 500; }
+
+/* Learning rounds: no separate top row. Logo and save status sit at the right end of the round's own row. */
+.shell[data-view="study"] { position: relative; }
+.shell[data-view="study"] .topbar {
+  position: absolute; z-index: 2; top: calc(var(--space-5) + env(safe-area-inset-top)); right: max(var(--space-4), 4vw, (100% - 720px) / 2);
+  flex-direction: row-reverse; gap: var(--space-2); min-height: 44px; padding: 0; background: none; border: 0;
+}
+.shell[data-view="study"] .topbar::after { display: none; }
+.shell[data-view="study"] .brand { pointer-events: none; padding: 0; }
+.shell[data-view="study"] .sync-status .text-button > span:not(.sr-only) { display: none; }
+.shell[data-view="study"] .main { padding-top: calc(var(--space-5) + env(safe-area-inset-top)); }
+.shell[data-view="study"] .study-top { padding-right: 44px; }
+.shell[data-view="study"]:has(.sync-status) .study-top { padding-right: 88px; }
+.grow-field { min-height: 52px; max-height: 40vh; resize: none; overflow-y: auto; }

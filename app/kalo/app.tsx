@@ -676,7 +676,8 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     <div className="shell" data-view={view}>
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
       <header className="topbar">
-        <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">Kalo</button>
+        {/* While learning, the wordmark stays as a quiet mark in the round's own row and does not lead out of the round. */}
+        <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zu Home" tabIndex={view === "study" ? -1 : undefined} aria-hidden={view === "study" || undefined}>Kalo</button>
         <div className="topbar-right">
           {data && (sync.pending > 0 || busy) && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
             <button className="text-button" onClick={() => void outbox.current?.retry(true)} title={sync.error ?? (sync.pending ? "Auf diesem Gerät gesichert. Wird automatisch übertragen, sobald die Verbindung steht." : "Wird auf dem Server gespeichert.")}>
@@ -774,7 +775,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
           }} />}
 
         {data && ["deck", "cards"].includes(view) && !deck && <EmptyState icon="cards" title="Set nicht verfügbar" text="Dieses Set wurde gelöscht oder auf einem anderen Gerät verändert.">
-          <button className="button primary" onClick={() => navigate("home")}>Zur Bibliothek</button></EmptyState>}
+          <button className="button primary" onClick={() => navigate("home")}>Zu Home</button></EmptyState>}
         {data && view === "study" && !session && <EmptyState icon="target" title="Keine offene Runde" text="Diese Runde wurde beendet, vielleicht auf einem anderen Gerät.">
           <button className="button primary" onClick={returnToDeck}>Zurück</button></EmptyState>}
       </main>

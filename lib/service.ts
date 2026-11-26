@@ -61,7 +61,7 @@ export class AccountStore {
   async writeSocial(accounts: { owner: string; account: Account }[], invite?: { key: string; revision: number; data: unknown }) {
     const rows = accounts.map(({ owner, account: { revision, ...data } }) => ({ owner, revision, payload: JSON.stringify(data) }));
     if (invite) rows.push({ owner: invite.key, revision: invite.revision, payload: JSON.stringify(invite.data) });
-    if (rows.some(row => new TextEncoder().encode(row.payload).length > 1_450_000)) throw new InputError("Deine Bibliothek ist zu gross. Sichere deine Sets und entferne ungenutzte Karten.");
+    if (rows.some(row => new TextEncoder().encode(row.payload).length > 1_450_000)) throw new InputError("Deine Sets sind zusammen zu gross. Sichere sie und entferne ungenutzte Karten.");
     const checks = rows.map(() => "(owner = ? AND revision = ?)").join(" OR ");
     const cases = rows.map(() => "WHEN ? THEN ?").join(" ");
     const ids = rows.map(() => "?").join(", ");
@@ -103,7 +103,7 @@ export class AccountStore {
     const { revision, ...data } = account;
     const payload = JSON.stringify(data);
     if (new TextEncoder().encode(payload).length > 1_450_000) {
-      throw new InputError("Deine Bibliothek ist zu gross. Sichere deine Sets und entferne ungenutzte Karten.");
+      throw new InputError("Deine Sets sind zusammen zu gross. Sichere sie und entferne ungenutzte Karten.");
     }
     const operation = revision === 0
       ? this.db.prepare("INSERT OR IGNORE INTO accounts (owner, revision, payload) VALUES (?, 1, ?)").bind(owner, payload)
