@@ -1,3 +1,5 @@
+import { dimThemeColor } from "./theme";
+
 /**
  * Shared motion rules for Kalo. CSS uses the matching tokens in globals.css (--ease-*, --t-*).
  *
@@ -67,4 +69,60 @@ export function textSize(text: string): "xl" | "l" | "m" | "s" {
 /** True on devices with a precise pointer, where focusing a field does not pop up a keyboard. */
 export function finePointer() {
   return typeof matchMedia === "function" && matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+let press = { x: 0, y: 0, at: -Infinity };
+
+/**
+ * Remembers where the last press happened, so what it opens can grow out of that point, and whether the keyboard
+ * is in use: focus rings are for keyboard users; after a tap they only flash a blue circle around a button.
+ */
+export function trackInput() {
+  const root = document.documentElement;
+  const pointer = (event: PointerEvent) => { press = { x: event.clientX, y: event.clientY, at: performance.now() }; delete root.dataset.keyboard; };
+  const key = (event: KeyboardEvent) => { if (["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(event.key)) root.dataset.keyboard = "true"; };
+  addEventListener("pointerdown", pointer, { capture: true, passive: true });
+  addEventListener("keydown", key, { capture: true });
+  return () => { removeEventListener("pointerdown", pointer, { capture: true }); removeEventListener("keydown", key, { capture: true }); };
+}
+
+/**
+ * Lets an element grow out of the point that was just pressed, so the eyes follow it instead of searching for it.
+ * Without a recent press (back gesture, keyboard) it grows from its own centre. Reduced motion: a short fade.
+ */
+export function growFromPress(element: HTMLElement, duration = 260) {
+  if (typeof element.animate !== "function") return;
+  if (prefersReducedMotion()) { element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 }); return; }
+  const box = element.getBoundingClientRect();
+  const recent = performance.now() - press.at < 900;
+  const x = recent ? Math.max(0, Math.min(box.width, press.x - box.left)) : box.width / 2;
+  const y = recent ? Math.max(0, Math.min(box.height, press.y - box.top)) : box.height / 2;
+  const origin = x + "px " + y + "px";
+  element.dataset.origin = origin;
+  element.animate([
+    { opacity: 0, transform: "scale(.9)", transformOrigin: origin },
+    { opacity: 1, transform: "scale(1)", transformOrigin: origin },
+  ], { duration, easing: "cubic-bezier(.2,.8,.2,1)" });
+}
+
+/** Leaves the way it came: shrinks back into the point it grew out of. Resolves when it is gone. */
+export function shrinkToPress(element: HTMLElement, duration = 170): Promise<void> {
+  if (typeof element.animate !== "function" || prefersReducedMotion()) return Promise.resolve();
+  const origin = element.dataset.origin ?? "50% 50%";
+  return element.animate([
+    { opacity: 1, transform: "scale(1)", transformOrigin: origin },
+    { opacity: 0, transform: "scale(.9)", transformOrigin: origin },
+  ], { duration, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => undefined, () => undefined);
+}
+
+/**
+ * Opens a modal dialog the same way everywhere: it grows from the pressed point and, if it dims the page, the
+ * browser bar dims with it. Returns the cleanup for when the dialog goes away.
+ */
+export function openDialog(element: HTMLDialogElement | null, { dim = true } = {}) {
+  if (!element) return () => undefined;
+  if (!element.open) element.showModal();
+  growFromPress(element);
+  if (dim) dimThemeColor(true);
+  return () => { if (dim) dimThemeColor(false); };
 }

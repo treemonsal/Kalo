@@ -6,7 +6,7 @@ import { clozeFrom, exampleLines, maskAnswer } from "../../lib/examples";
 import { lookupTerm, type PairExplanation, type WordExplanation } from "../../lib/explanations";
 import { lockViewport } from "../../lib/viewport-lock";
 import { Icon } from "./icons";
-import { prefersReducedMotion } from "./motion";
+import { openDialog, shrinkToPress } from "./motion";
 import type { Mutate } from "./types";
 
 /** What the examples card needs from the app: where ChatGPT is, how to save, and which set the card belongs to. */
@@ -73,18 +73,15 @@ function ExamplesCard({ card, revealed, help, anchor, onClose }: { card: CardHel
       if (stage && stage.dataset.mode !== "idle") frame = requestAnimationFrame(follow);
     };
     sync();
-    if (element && !element.open) element.showModal();
-    // The examples card turns in like a third side of the learning card.
-    if (element && !prefersReducedMotion() && typeof element.animate === "function") {
-      element.animate([{ transform: "perspective(1200px) rotateY(-90deg)", opacity: 0.4 }, { transform: "perspective(1200px) rotateY(0deg)", opacity: 1 }],
-        { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
-    }
+    // The examples card grows out of the «Beispiele» button that was pressed.
+    const closeDialog = openDialog(element);
     const resize = new ResizeObserver(sync);
     if (anchor) { resize.observe(anchor); frame = requestAnimationFrame(follow); }
     window.addEventListener("resize", sync);
     window.visualViewport?.addEventListener("resize", sync);
     window.visualViewport?.addEventListener("scroll", sync);
     return () => {
+      closeDialog();
       cancelAnimationFrame(frame); resize.disconnect(); unlock();
       window.removeEventListener("resize", sync);
       window.visualViewport?.removeEventListener("resize", sync);
@@ -107,9 +104,8 @@ function ExamplesCard({ card, revealed, help, anchor, onClose }: { card: CardHel
     const element = dialog.current;
     if (closing.current) return;
     closing.current = true;
-    if (!element || prefersReducedMotion() || typeof element.animate !== "function") { onClose(); return; }
-    element.animate([{ transform: "perspective(1200px) rotateY(0deg)", opacity: 1 }, { transform: "perspective(1200px) rotateY(90deg)", opacity: 0.4 }],
-      { duration: 160, easing: "ease-in", fill: "forwards" }).finished.then(onClose, onClose);
+    if (!element) { onClose(); return; }
+    void shrinkToPress(element).then(onClose);
   }
 
   async function save(key: string, action: Parameters<Mutate>[0]) {

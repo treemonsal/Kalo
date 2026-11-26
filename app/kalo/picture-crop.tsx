@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { openDialog } from "./motion";
 import { Icon } from "./icons";
 import { cropOf, renderPicture } from "./picture";
 
@@ -18,10 +19,7 @@ export function PictureCrop({ image, onCancel, onDone }: { image: HTMLImageEleme
   const height = image.naturalHeight;
   const view = cropOf(width, height, FRAME, zoom, offset);
 
-  useEffect(() => {
-    const element = dialog.current;
-    if (element && !element.open) element.showModal();
-  }, []);
+  useEffect(() => openDialog(dialog.current), []);
 
   function move(x: number, y: number) {
     setOffset(cropOf(width, height, FRAME, zoom, { x, y }).offset);

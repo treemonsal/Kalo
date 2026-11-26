@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
 import type { Design } from "../../lib/design";
 import { apply, cardLearningDigest, dayOf, deckDigest, dueCards, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
@@ -25,6 +25,7 @@ import ProfileEditor from "./profile-editor";
 import StreakCelebration from "./streak-celebration";
 import { HelpContext } from "./examples-button";
 import { useNavigation } from "./navigation";
+import { growFromPress, trackInput } from "./motion";
 import { SAMPLE_SET } from "../../lib/sample";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
@@ -323,6 +324,13 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   const workspace = data?.workspace;
   const deck = workspace?.decks.find(item => item.id === deckId);
   const session = workspace?.session;
+
+  useEffect(() => trackInput(), []);
+
+  // Each block of the new view grows out of the point that was pressed to open it. Before paint, so nothing flashes.
+  useLayoutEffect(() => {
+    main.current?.querySelectorAll<HTMLElement>(":scope > :not(.toast-slot, .banner)").forEach(element => growFromPress(element, 280));
+  }, [view]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

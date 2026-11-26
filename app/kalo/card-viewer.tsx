@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { openDialog } from "./motion";
 import { lockViewport } from "../../lib/viewport-lock";
 import { dayOf, shuffle, type Deck, type Direction, type Workspace } from "../../lib/learning";
 import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
@@ -58,8 +59,9 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
     const element = dialog.current;
     if (!element) return;
     const unlock = lockViewport();
-    if (!element.open) element.showModal();
-    return unlock;
+    // The card mode grows out of the tile or button that opened it; it fills the screen, so nothing is dimmed.
+    const close = openDialog(element, { dim: false });
+    return () => { close(); unlock(); };
   }, []);
 
   useEffect(() => {
@@ -220,10 +222,8 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
         card={{ key: card.id, question: card[direction], answer: card[other], examples: card.examples }}
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
         hint={position === 0 && !last} demo={demo && position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
-      <div className="swipe-status">
-        {position === 0 ? <span className="swipe-hint">Wischen: links noch nicht, rechts kann ich</span> : <span />}
-        {undoButton}
-      </div>
+      {/* No explanation line: the one-time swipe demo shows the gesture, the large buttons name it. */}
+      <div className="swipe-status"><span />{undoButton}</div>
       <div className="swipe-actions">
         <button className="button rate-again" onClick={() => flashcard.current?.fling(false)}><Icon kind="repeat" /> Noch nicht <Key>1</Key></button>
         <button className="button rate-known" onClick={() => flashcard.current?.fling(true)}><Icon kind="check" /> Kann ich <Key>2</Key></button>

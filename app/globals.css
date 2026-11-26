@@ -98,6 +98,8 @@ button, summary { cursor: pointer; }
 button:disabled { cursor: default; }
 a { color: inherit; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* Focus rings belong to keyboard use. After a tap, Safari would otherwise draw a blue circle around a focused button. */
+:root:not([data-keyboard]) :is(button, a, summary, [tabindex]):focus-visible { outline: none; }
 h1, h2, h3, p, ul { margin: 0; }
 ul { padding: 0; list-style: none; }
 /* German compounds break at syllables (Rechnungs-wesen), not anywhere; breaking anywhere is only the last resort for strings without syllables. */
@@ -140,7 +142,7 @@ p { color: var(--muted); }
 }
 .main:focus { outline: none; }
 /* Views arrive with a short fade and lift; they never slide sideways. */
-.main > :not(.toast-slot, .banner) { animation: view-in var(--t-view) var(--ease-settle) both; }
+/* Views grow out of the pressed point (growFromPress in app.tsx), so the eyes follow instead of searching. */
 @keyframes view-in { from { opacity: 0; transform: translateY(6px); } }
 
 /* Floating navigation: a glass layer apart from the content, plus button separate */
@@ -246,7 +248,7 @@ p { color: var(--muted); }
 .sheet-dialog {
   width: min(calc(100% - 32px), 420px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 22px;
   color: var(--ink); background: var(--raised); box-shadow: var(--shadow-raised);
-  animation: sheet-in var(--t-base) var(--ease-settle) both;
+  /* Opening grows from the pressed point in JavaScript (openDialog); only the closing uses CSS. */
 }
 .sheet-dialog::backdrop { background: light-dark(#14141340, #00000080); animation: fade-in var(--t-base) ease both; }
 .sheet-dialog[data-closing] { animation: sheet-out var(--t-quick) var(--ease-exit) both; }
