@@ -30,9 +30,9 @@
 .card-stage[data-mode="idle"] .card-under { transition: transform var(--t-view) var(--ease-settle), opacity var(--t-view) ease; }
 .card-under .card-face { box-shadow: none; }
 /* The next card stays blank at rest and while the current one turns; its question only appears as the current card is swiped away. */
-.card-under :is(.card-copy, .eyebrow) { opacity: var(--progress); transition: opacity 160ms ease; }
+.card-under :is(.card-copy, .eyebrow) { opacity: var(--progress); transition: opacity calc(160ms * var(--motion-scale)) ease; }
 /* The new top card takes over the text the card underneath was already showing: it settles in instead of popping up. */
-.flashcard .card-faces .card-copy { animation: copy-arrive 220ms var(--ease-settle); }
+.flashcard .card-faces .card-copy { animation: copy-arrive calc(220ms * var(--motion-scale)) var(--ease-settle); }
 @keyframes copy-arrive { from { opacity: .35; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .flashcard .card-faces .card-copy { animation: none; } .card-under :is(.card-copy, .eyebrow) { transition: none; } }
 .card-stage[data-demo] .card-under :is(.card-copy, .eyebrow) { opacity: 0; }
@@ -91,7 +91,7 @@
 .card-controls { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-4); }
 .finish, .milestone { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-6); }
 .finish .actions, .milestone .actions { margin-top: var(--space-2); }
-.finish-mark { display: grid; place-items: center; color: var(--known-ink); animation: pop 480ms var(--ease-spring) both; }
+.finish-mark { display: grid; place-items: center; color: var(--known-ink); animation: pop calc(480ms * var(--motion-scale)) var(--ease-spring) both; }
 .finish-mark .icon-svg { width: 40px; height: 40px; }
 .finish-mark.open { color: var(--accent); }
 .focus-dialog {
@@ -131,7 +131,7 @@
   display: grid; gap: 4px; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--soft);
   animation: answer-in var(--t-base) var(--ease-settle) both;
 }
-.answer-box + .answer-box { animation-delay: 60ms; }
+.answer-box + .answer-box { animation-delay: calc(60ms * var(--motion-scale)); }
 .answer-box p { color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; }
 .answer-box p[data-size="xl"], .answer-box p[data-size="l"] { font-size: 1.25rem; line-height: 1.3; font-weight: 600; }
 .answer-box.placeholder { min-height: 9.5rem; align-content: center; border-style: dashed; background: transparent; animation: none; }
@@ -153,7 +153,7 @@
 .answer [data-size] { font-size: var(--fs-body); line-height: 1.35; font-weight: 550; letter-spacing: 0; }
 .answer:disabled { opacity: 1; }
 .answer[data-result="faded"] { opacity: .5; }
-.answer[data-result="correct"] { animation: pop 380ms var(--ease-spring); }
+.answer[data-result="correct"] { animation: pop calc(380ms * var(--motion-scale)) var(--ease-spring); }
 .answer-mark { display: grid; place-items: center; width: 20px; }
 @media (hover: hover) and (pointer: fine) { .answer:hover:not(:disabled) { border-color: var(--line-strong); background: var(--soft); } }
 .action-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 48px; }
@@ -174,9 +174,9 @@
 .summary h3 span { margin-left: auto; font-variant-numeric: tabular-nums; }
 .summary li { padding: 3px 0; color: var(--ink); font-size: var(--fs-callout); overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .celebration { position: relative; display: grid; place-items: center; width: 72px; height: 64px; }
-.celebration > span { display: grid; place-items: center; color: var(--known-ink); animation: pop 520ms var(--ease-spring) both; }
+.celebration > span { display: grid; place-items: center; color: var(--known-ink); animation: pop calc(520ms * var(--motion-scale)) var(--ease-spring) both; }
 .celebration > span .icon-svg { width: 40px; height: 40px; }
-.celebration i { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; border-radius: 2px; background: var(--mark); opacity: 0; animation: spark 700ms var(--ease-settle) 80ms both; }
+.celebration i { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; border-radius: 2px; background: var(--mark); opacity: 0; animation: spark calc(700ms * var(--motion-scale)) var(--ease-settle) calc(80ms * var(--motion-scale)) both; }
 .celebration i:nth-of-type(1) { --x: -38px; --y: -22px; }
 .celebration i:nth-of-type(2) { --x: -6px; --y: -36px; background: var(--known-ink); }
 .celebration i:nth-of-type(3) { --x: 32px; --y: -26px; }

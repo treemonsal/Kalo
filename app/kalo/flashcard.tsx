@@ -4,7 +4,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type MouseEven
 import { dragOffset, swipeIntent, swipeStep } from "../../lib/swipe";
 import { Icon } from "./icons";
 import CardFace from "./card-face";
-import { haptic, prefersReducedMotion, springs, stepSpring, textSize, toss, type Spring } from "./motion";
+import { haptic, motionDuration, prefersReducedMotion, springs, stepSpring, textSize, toss, type Spring } from "./motion";
 
 type Sample = { x: number; time: number };
 type Drag = { id: number; x: number; y: number; offset: number; width: number; intent: "pending" | "horizontal" | "vertical"; samples: Sample[] };
@@ -163,12 +163,13 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, demo,
       const stage = surface.current?.closest<HTMLElement>(".card-stage");
       if (stage) stage.dataset.demo = "true";
       const end = () => { if (stage) delete stage.dataset.demo; };
+      const duration = motionDuration(1600) / 1000;
       let time = 0;
       run(dt => {
         if (motion.current.mode !== "settle") { end(); return true; }
         time += dt;
-        if (time >= 1.6) { paint(0); setMode("idle"); end(); return true; }
-        paint(-52 * Math.sin((time / 1.6) * 2 * Math.PI) * (1 - time / 1.6 * 0.35));
+        if (time >= duration) { paint(0); setMode("idle"); end(); return true; }
+        paint(-52 * Math.sin((time / duration) * 2 * Math.PI) * (1 - time / duration * 0.35));
         return false;
       });
     }, 700);

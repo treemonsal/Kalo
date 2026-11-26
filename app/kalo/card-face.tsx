@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type MouseEvent } from 
 import { flushSync } from "react-dom";
 import ExamplesButton from "./examples-button";
 import type { CardContent } from "./flashcard";
-import { prefersReducedMotion, textSize } from "./motion";
+import { motionDuration, prefersReducedMotion, textSize } from "./motion";
 
 type Props = { card: CardContent; flipped: boolean; hint?: boolean; onFlip: (event: MouseEvent<HTMLButtonElement>) => void; onBeforeExamples: () => boolean };
 
@@ -41,12 +41,12 @@ export default function CardFace({ card, flipped, hint, onFlip, onBeforeExamples
       try {
         // A real turn in depth instead of squeezing the text: rotate to the edge, swap the content, rotate back in.
         // The content is swapped at 90 degrees, so no text is ever shown mirrored.
-        animation = element.animate([{ transform: "perspective(1100px) rotateY(0deg)" }, { transform: "perspective(1100px) rotateY(90deg)" }], { duration: 140, easing: "ease-in", fill: "forwards" });
+        animation = element.animate([{ transform: "perspective(1100px) rotateY(0deg)" }, { transform: "perspective(1100px) rotateY(90deg)" }], { duration: motionDuration(140), easing: "ease-in", fill: "forwards" });
         await animation.finished;
         if (cancelled) return;
         replace();
         const closing = animation;
-        animation = element.animate([{ transform: "perspective(1100px) rotateY(-90deg)" }, { transform: "perspective(1100px) rotateY(0deg)" }], { duration: 200, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" });
+        animation = element.animate([{ transform: "perspective(1100px) rotateY(-90deg)" }, { transform: "perspective(1100px) rotateY(0deg)" }], { duration: motionDuration(200), easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" });
         closing.cancel();
         await animation.finished;
         if (!cancelled) animation.cancel();

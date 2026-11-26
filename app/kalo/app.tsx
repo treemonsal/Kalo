@@ -25,7 +25,7 @@ import ProfileEditor from "./profile-editor";
 import StreakCelebration from "./streak-celebration";
 import { HelpContext } from "./examples-button";
 import { useNavigation } from "./navigation";
-import { growFromPress, trackInput } from "./motion";
+import { growFromPress, motionDuration, trackInput } from "./motion";
 import { SAMPLE_SET } from "../../lib/sample";
 import StatsView from "./stats-view";
 import { parseStored, readStored, useStored, writeStored } from "./storage";
@@ -220,13 +220,14 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
 
   useEffect(() => {
     if (!celebrate) return;
-    const timer = window.setTimeout(() => setCelebrate(null), 3_600);
+    // Match the CSS hold plus the exit animation, so the slower fade finishes before unmounting.
+    const timer = window.setTimeout(() => setCelebrate(null), 3_300 + motionDuration(240) + 60);
     return () => window.clearTimeout(timer);
   }, [celebrate]);
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 2_800);
+    const timer = window.setTimeout(() => setNotice(""), 2_550 + motionDuration(240) + 10);
     return () => window.clearTimeout(timer);
   }, [notice]);
 

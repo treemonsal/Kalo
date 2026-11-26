@@ -27,7 +27,7 @@
 :root[data-design="classic"] .answer-label { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 :root[data-design="classic"] .setting-label { font-weight: 650; }
 :root[data-design="classic"] .hero-copy strong { font-weight: 700; }
-:root[data-design="classic"] .hero-streak[data-risk="true"] .flame { animation: pulse 1.8s ease-in-out infinite; }
+:root[data-design="classic"] .hero-streak[data-risk="true"] .flame { animation: pulse calc(1.8s * var(--motion-scale)) ease-in-out infinite; }
 :root[data-design="classic"] .ring-label strong { font-weight: 750; }
 :root[data-design="classic"] .goal-celebration strong { font-weight: 760; }
 :root[data-design="classic"] .goal-celebration span { font-weight: 700; }
