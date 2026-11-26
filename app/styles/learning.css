@@ -252,5 +252,4 @@
 
 /* Study screens share one column, so header, progress and question line up on wide screens. */
 .shell[data-view="study"] .main > * { width: min(100%, 720px); margin-inline: auto; }
-.shell[data-view="study"] .question { width: 100%; }
 

@@ -352,7 +352,8 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .friend-streak { display: inline-flex; align-items: center; gap: 4px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .friend-streak[data-active="true"] { color: var(--mark); }
 .profile-edit-panel { align-items: center; }
-.profile-edit-panel > .profile-picture { align-self: center; }
+/* The camera badge sits on the picture, not at the far edge of the panel. */
+.profile-edit-panel > .profile-picture { align-self: center; justify-self: start; width: max-content; }
 .profile-edit-name { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--space-3); width: 100%; }
 .profile-edit-name label { min-width: 0; }
 .friend-list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
@@ -428,11 +429,11 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
   flex-direction: row-reverse; gap: var(--space-2); min-height: 44px; padding: 0; background: none; border: 0;
 }
 .shell[data-view="study"] .topbar::after { display: none; }
-.shell[data-view="study"] .brand { pointer-events: none; padding: 0; }
+/* Like the card mode: no floating wordmark in a round. Only the save status may appear at the right end of the row. */
+.shell[data-view="study"] .brand { display: none; }
 .shell[data-view="study"] .sync-status .text-button > span:not(.sr-only) { display: none; }
 .shell[data-view="study"] .main { padding-top: calc(var(--space-5) + env(safe-area-inset-top)); }
-.shell[data-view="study"] .study-top { padding-right: 44px; }
-.shell[data-view="study"]:has(.sync-status) .study-top { padding-right: 88px; }
+.shell[data-view="study"]:has(.sync-status) .study-top { padding-right: 48px; }
 .grow-field { min-height: 52px; max-height: 40vh; resize: none; overflow-y: auto; }
 
 /* Examples card: own lines with a cloze action, then the dictionary. */
@@ -446,7 +447,6 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .answer-example { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--fs-footnote); line-height: 1.45; }
 
 /* While learning, the wordmark is a quiet signature, smaller and dimmer than the round's title. */
-.shell[data-view="study"] .brand { min-height: 44px; color: var(--faint); font-size: var(--fs-callout); }
 /* Editor fields grow with their text instead of showing a resize handle. */
 @supports (field-sizing: content) { .edit-list textarea { field-sizing: content; resize: none; } }
 
@@ -463,7 +463,7 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .more-menu > summary, .more-menu[open] > summary { margin: 0; list-style: none; cursor: pointer; }
 .more-menu > summary::-webkit-details-marker { display: none; }
 .more-list {
-  position: absolute; z-index: 8; top: calc(100% + 4px); right: 0; display: grid; min-width: 220px; padding: var(--space-1);
+  position: absolute; z-index: 8; top: calc(100% + 8px); right: 0; display: grid; min-width: 220px; padding: var(--space-1);
   border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--raised); box-shadow: var(--shadow-raised);
   transform-origin: top right; animation: menu-in var(--t-quick) var(--ease-settle);
 }
@@ -472,7 +472,13 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .more-list small { color: var(--muted); font-size: var(--fs-caption); font-weight: 400; }
 .more-list button:active { background: var(--soft); }
 @media (hover: hover) and (pointer: fine) { .more-list button:hover { background: var(--soft); } }
-@keyframes menu-in { from { opacity: 0; transform: scale(.96); } }
+/* The menu belongs to its button: the open «⋯» stays highlighted and a small tip points at it, the menu grows from there. */
+.more-menu[open] > summary { border-radius: 50%; color: var(--ink); background: var(--soft); }
+.more-list::before {
+  content: ""; position: absolute; top: -6px; right: 16px; width: 12px; height: 12px; transform: rotate(45deg);
+  border-top: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--raised);
+}
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.92); } }
 @media (prefers-reduced-motion: reduce) { .more-list { animation: none; } }
 .exam-pace { display: flex; align-items: center; gap: var(--space-2); margin: calc(var(--space-2) * -1) 0 var(--space-4); color: var(--muted); font-size: var(--fs-footnote); }
 .storage-line { display: flex; align-items: center; gap: var(--space-3); font-variant-numeric: tabular-nums; color: var(--muted); font-size: var(--fs-footnote); }

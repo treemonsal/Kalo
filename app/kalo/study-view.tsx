@@ -147,7 +147,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
     </div>
     {session.mode === "learn" && session.initial.length > 0 ? <div className="study-progress">
       <Mastery session={session} />
-      <span>{mastered.length} von {session.initial.length} sitzen{session.done ? "" : " · Runde " + session.round + " von " + MAX_LEARN_ROUNDS}</span>
+      <span>{mastered.length} von {session.initial.length}{session.done ? " sitzen" : " · Runde " + session.round + "/" + MAX_LEARN_ROUNDS}</span>
     </div> : !session.done || shown ? <div className="study-progress">
       <div className="meter"><i style={{ width: (answered / total) * 100 + "%" }} /></div>
       <span>{answered} von {total} beantwortet</span>

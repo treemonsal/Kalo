@@ -68,7 +68,7 @@ export function NextStepActions({ step, goalReached, onStep, onDone }: { step: S
 export function GoalBanner({ workspace, now }: { workspace: Workspace; now: number }) {
   const goal = goalOf(workspace);
   const today = dayStats(workspace, dayOf(now));
-  if (today.points < goal) return <p className="goal-line" aria-label={goal - today.points + " Punkte bis zum Tagesziel"}><GoalRing points={today.points} goal={goal} size={36} /></p>;
+  if (today.points < goal) return <p className="goal-line" aria-label={goal - today.points + " Punkte bis zum Tagesziel"}><GoalRing points={today.points} goal={goal} size={36} /><span>Noch {goal - today.points} bis zum Tagesziel</span></p>;
   const current = streak(workspace, now);
   return <p className="goal-line done" aria-label={"Tagesziel erreicht, " + current.days + " Tage Serie"}><GoalRing points={today.points} goal={goal} size={36} /><Icon kind="flame" filled />{current.days}</p>;
 }

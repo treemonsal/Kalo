@@ -417,3 +417,5 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .preview-list span { overflow-wrap: anywhere; hyphens: auto; -webkit-hyphens: auto; white-space: pre-wrap; }
 
 /* Learning screens are in styles/learning.css, the daily loop and later screens in styles/screens.css (same order, same cascade). */
+/* Checkboxes and radios in the app colours instead of the browser's grey default. */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--primary); width: 20px; height: 20px; }
