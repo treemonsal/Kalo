@@ -147,6 +147,63 @@ await scenario("320 px: kein Querscrollen, Modi als Zeilen", { width: 320, heigh
   assert.ok(await tile.evaluate(element => element.scrollWidth <= element.clientWidth + 1), "«Wiederholen» passt");
 });
 
+await scenario("Gemischtes Wiederholen: Hilfe und Lückentext bleiben im richtigen Set", phone, async page => {
+  await save(page, "Gemischt A", [vocabulary[0]]);
+  await save(page, "Gemischt B", [vocabulary[1]]);
+  const original = await page.evaluate(async () => {
+    const post = async action => {
+      const response = await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+      if (!response.ok) throw new Error("Testvorbereitung fehlgeschlagen: " + response.status);
+    };
+    const { workspace } = await (await fetch("/api/workspace")).json();
+    for (const deck of workspace.decks) for (const card of deck.cards) {
+      await post({ type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: false });
+    }
+    const latest = (await (await fetch("/api/workspace")).json()).workspace;
+    for (const review of Object.values(latest.reviews)) review.due = new Date(Date.now() - 1000).toISOString();
+    await post({ type: "restore", data: latest });
+    return workspace.decks;
+  });
+  const lookups = [];
+  await page.route("**/api/explain", async route => {
+    lookups.push(route.request().postDataJSON());
+    await route.fulfill({ json: { front: { term: "", meanings: [] }, back: { term: "", meanings: [] } } });
+  });
+  await page.reload(); await page.waitForLoadState("networkidle");
+  await page.locator(".due-alert").click();
+  const seen = new Set();
+  for (let i = 0; i < 2; i++) {
+    await page.waitForSelector("#prompt");
+    const prompt = await page.locator("#prompt").innerText();
+    const deck = original.find(deck => deck.cards[0].front === prompt);
+    assert.ok(deck, "Frage gehört zu einem der beteiligten Sets");
+    seen.add(deck.id);
+    await page.getByRole("button", { name: "Beispiele und Erklärung anzeigen" }).click();
+    await page.waitForSelector(".examples-dialog[open]");
+    await page.waitForFunction(() => !document.querySelector(".explain-loading"));
+    assert.deepEqual(lookups.at(-1), { deckId: deck.id, cardId: deck.cards[0].id }, "Wörterbuch verwendet das tatsächliche Set");
+    await page.locator(".example-lines .text-button").first().click();
+    await page.waitForSelector("text=Als Karte gespeichert");
+    await page.getByRole("button", { name: "Beispiele schliessen" }).click();
+    await page.waitForSelector(".examples-dialog", { state: "detached" });
+    await page.locator(".answer-box.placeholder").click();
+    await page.locator('.grades button[data-grade="3"]').click();
+  }
+  assert.equal(seen.size, 2);
+  const saved = await page.evaluate(async () => (await (await fetch("/api/workspace")).json()).workspace.decks);
+  assert.ok(saved.every(deck => deck.cards.length === 2), "jedes Set bekommt nur seine eigene Lückentext-Karte");
+});
+
+await scenario("Wisch-Demo: Berührung beendet die Demo vollständig", phone, async page => {
+  await save(page, "Demo", vocabulary);
+  await page.evaluate(() => localStorage.removeItem("kalo-swipe-demo"));
+  await page.locator(".deck-tile", { hasText: "Demo" }).click();
+  await page.locator("button.mode", { hasText: "Karten" }).click();
+  await page.waitForSelector('.card-stage[data-demo="true"]');
+  await page.locator(".card-flip").first().click({ force: true });
+  assert.equal(await page.locator(".card-stage").evaluate(element => element.dataset.demo), undefined, "die nächste Kartenfrage bleibt nach Unterbrechen nicht ausgeblendet");
+});
+
 for (const [state, text] of results) console.log((state === "ok" ? "ok   " : "FAIL ") + text);
 const failed = results.filter(([state]) => state !== "ok").length;
 console.log(results.length - failed + " von " + results.length + " Browserprüfungen bestanden");

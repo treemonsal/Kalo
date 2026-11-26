@@ -280,6 +280,21 @@ test("Push: VAPID-Signatur ist gültig, Erinnerung kommt einmal am Morgen", asyn
   assert.match(text.title, /fällig/);
 });
 
+test("Profilbilder aus der veröffentlichten Version bleiben nach dem Update sichtbar", async () => {
+  const { store, request, now } = setup();
+  const picture = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+  const account = await store.read("alice");
+  account.profile = { name: "Alice", picture };
+  assert.equal(await store.write("alice", account), true);
+  const loaded = await data<{ profile: { picture: string | null } }>(api(request("alice"), store, now));
+  assert.equal(loaded.profile.picture, picture, "alte direkt gespeicherte Bilder brauchen noch keine neue Bild-Adresse");
+  const renamed = await data<{ profile: { picture: string | null } }>(api(request("alice", { action: { type: "profile", name: "Ali" } }), store, now));
+  assert.equal(renamed.profile.picture, picture, "eine reine Namensänderung erhält das alte Bild");
+  const replaced = await data<{ profile: { picture: string | null } }>(api(request("alice", { action: { type: "profile", picture } }), store, now));
+  assert.match(replaced.profile.picture ?? "", /^\/api\/workspace\?picture=[0-9a-f-]{36}$/);
+  assert.equal((await api(request(null, undefined, replaced.profile.picture!), store, now)).status, 200);
+});
+
 test("Profil: eigener Name und Bild, das Bild reist nicht mit jeder Aktion, der Partner sieht beides", async () => {
   const { store, request, now } = setup();
   type Profiled = Social & { profile: { name: string; picture: string | null; custom: boolean }; partner?: { name: string; picture?: string } | null };

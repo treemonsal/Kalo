@@ -388,6 +388,27 @@ test("Gemischtes Wiederholen nimmt fällige Karten aus mehreren Sets und bleibt 
   assert.equal(s.session, null, "Löschen eines beteiligten Sets beendet die Runde");
 });
 
+test("Grosse gemischte Wiederholungen bleiben speicherbar und nehmen jede Karte höchstens einmal", () => {
+  const { state, deck: a } = setup(250);
+  let s = apply(state, { type: "save", title: "Weiteres Set", cards: a.cards.map(card => ({ front: card.front, back: card.back })) }, now);
+  const b = s.decks[0];
+  s = apply(s, { type: "sortCard", deckId: a.id, cardId: a.cards[0].id, direction: "front", known: false }, now);
+  const template = s.reviews[a.cards[0].id + ":front"];
+  for (const deck of [a, b]) for (const card of deck.cards) {
+    const id = card.id + ":front";
+    s.reviews[id] = { ...template, cardId: id };
+  }
+  const later = now + 3_600_000;
+  s = apply(s, { type: "start", deckId: a.id, mixed: [b.id, b.id, a.id], mode: "review", direction: "front", filter: "all", dueOnly: true }, later);
+  assert.equal(s.session?.queue.length, 400, "die Runde hält die Grenze des gespeicherten Formats ein");
+  assert.equal(new Set(s.session!.queue).size, 400);
+  assert.deepEqual(s.session?.mixed, [b.id]);
+  assert.equal(Object.keys(s.reviews).length, 500, "nicht gewählte fällige Karten bleiben für die nächste Runde erhalten");
+  s = apply(empty(), { type: "restore", data: JSON.parse(JSON.stringify(s)) }, later);
+  s = apply(s, { type: "rate", sessionId: s.session!.id, cursor: 0, grade: 3 }, later);
+  assert.equal(s.session?.cursor, 1, "die nächste Bewertung funktioniert nach Laden der Runde");
+});
+
 test("«Kann ich» im Kartenmodus plant vorsichtiger ein als eine bewertete Wiederholung", () => {
   let s = apply(empty(), { type: "save", title: "A", cards: [{ front: "a", back: "b" }, { front: "c", back: "d" }] }, now);
   const deck = s.decks[0];

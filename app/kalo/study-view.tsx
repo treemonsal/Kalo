@@ -195,7 +195,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
         }
       }}
       onPointerCancel={() => { swipe.current = null; if (panel.current) panel.current.style.transform = ""; }}>
-      <ExamplesButton key={shown ? shown.from : current} card={{ cardId: view.card.id, question: view.prompt, answer: view.answer, examples: view.card.examples }} revealed={Boolean(shown)} />
+      <ExamplesButton key={shown ? shown.from : current} card={{ cardId: view.card.id, deckId: view.deck.id, question: view.prompt, answer: view.answer, examples: view.card.examples }} revealed={Boolean(shown)} />
       <div className="question-content" key={"prompt:" + (shown ? shown.from : current)}>
         {view.gold && <span className="question-top"><span className="gold-badge"><Icon kind="sparkle" filled /> Gold · zählt doppelt</span></span>}
         <h2 id="prompt" className="prompt" data-size={textSize(view.prompt)}>{view.prompt}</h2>
