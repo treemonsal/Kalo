@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apply, choices, dayOf, dueCards, shuffle, type CardInput } from "./learning.ts";
 import { dayStats, goalOf, sharedStreak, streak } from "./progress.ts";
+import { pictureUrl } from "./picture.ts";
 import type { Account, AccountStore, SocialAccount } from "./service.ts";
 
 /**
@@ -29,12 +30,13 @@ export const socialShape = z.discriminatedUnion("type", [
 export type SocialAction = z.infer<typeof socialShape>;
 
 export type Share = { owner: string; ownerName: string; title: string; cards: CardInput[]; imports: number; created: number };
-export type Invite = { owner: string; ownerName: string; expires: number; acceptedBy?: string; acceptedAt?: number };
+export type Invite = { owner: string; ownerName: string; ownerSignIn?: string; expires: number; acceptedBy?: string; acceptedAt?: number };
 export type FriendRef = { id: string; name: string };
 export type DuelQuestion = { prompt: string; options: string[]; answer: string };
 export type DuelResult = { id: string; name: string; correct: number; ms: number; at: number };
 export type Duel = { owner: string; ownerName: string; title: string; questions: DuelQuestion[]; results: DuelResult[]; created: number };
-export type Me = { id: string; name: string };
+/** `name` is what others see and is only looked up when an action needs it; `signInName` never changes. */
+export type Me = { id: string; signInName: string; name: () => Promise<string> };
 export type SocialReply = { status: number; body: Record<string, unknown> };
 
 const ATTEMPTS = 3;
@@ -92,8 +94,9 @@ async function acceptFriend(store: AccountStore, me: Me, token: string, now: num
       throw new Refusal("Diese Einladung wurde bereits verwendet. Lass dir eine neue Einladung schicken.", 409);
     }
     if (!ownConnected && ownRefs.length >= MAX_FRIENDS || !theirConnected && theirRefs.length >= MAX_FRIENDS) throw new Refusal("Pro Person sind höchstens 50 Freunde möglich.", 409);
-    if (!ownConnected) ownRefs.push({ id: invite.owner, name: invite.ownerName });
-    if (!theirConnected) theirRefs.push({ id: me.id, name: me.name });
+    if (!ownConnected) ownRefs.push({ id: invite.owner, name: invite.ownerSignIn ?? invite.ownerName });
+    // Stored names are the sign-in names, only a fallback: summaries read the current own name from the account.
+    if (!theirConnected) theirRefs.push({ id: me.id, name: me.signInName });
     setFriends(mine, ownRefs);
     setFriends(theirs, theirRefs);
     if (await store.writeSocial([{ owner: me.id, account: mine }, { owner: invite.owner, account: theirs }], {
@@ -157,7 +160,7 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
       const token = mine.published?.[deck.id] ?? crypto.randomUUID();
       const cards = deck.cards.map(({ front, back, examples, frontAliases, backAliases }) => ({ front, back, examples, frontAliases, backAliases }));
       const existing = await store.getRecord<Share>("share:" + token);
-      const share: Share = { owner: me.id, ownerName: me.name, title: deck.title, cards, imports: existing?.data.imports ?? 0, created: existing?.data.created ?? now };
+      const share: Share = { owner: me.id, ownerName: await me.name(), title: deck.title, cards, imports: existing?.data.imports ?? 0, created: existing?.data.created ?? now };
       if (!await store.putRecord("share:" + token, existing?.revision ?? 0, share)) throw new Refusal("Gerade wird gleichzeitig gespeichert. Versuche es erneut.", 409);
       await updateAccount(store, me.id, account => { account.published = { ...account.published, [deck.id]: token }; });
       return { status: 200, body: { token, imports: share.imports } };
@@ -177,7 +180,7 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
     }
     if (action.type === "invitePartner" || action.type === "inviteFriend") {
       const token = crypto.randomUUID();
-      if (!await store.putRecord("partner:" + token, 0, { owner: me.id, ownerName: me.name, expires: now + INVITE_DAYS * 86_400_000 } satisfies Invite)) throw new Refusal("Die Einladung konnte nicht erstellt werden. Versuche es erneut.", 409);
+      if (!await store.putRecord("partner:" + token, 0, { owner: me.id, ownerName: await me.name(), ownerSignIn: me.signInName, expires: now + INVITE_DAYS * 86_400_000 } satisfies Invite)) throw new Refusal("Die Einladung konnte nicht erstellt werden. Versuche es erneut.", 409);
       return { status: 200, body: { token } };
     }
     if (action.type === "acceptPartner" || action.type === "acceptFriend") {
@@ -195,14 +198,15 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
         .map(card => ({ prompt: card.front, options: choices(deck, card, "front", token), answer: card.back }))
         .filter(item => item.options.length === 4).slice(0, DUEL_SIZE);
       if (questions.length < 5) throw new Refusal("Für ein Duell braucht das Set mindestens fünf Karten mit unterschiedlichen, kurzen Antworten.");
-      await store.putRecord("duel:" + token, 0, { owner: me.id, ownerName: me.name, title: deck.title, questions, results: [], created: now } satisfies Duel);
+      await store.putRecord("duel:" + token, 0, { owner: me.id, ownerName: await me.name(), title: deck.title, questions, results: [], created: now } satisfies Duel);
       return { status: 200, body: { token } };
     }
     if (action.type === "duelResult") {
+      const myName = await me.name();
       const duel = await updateRecord<Duel>(store, "duel:" + action.token, data => {
         if (data.results.some(result => result.id === me.id) || data.results.length >= 30) return data;
         const correct = data.questions.filter((question, i) => action.answers[i] === question.answer).length;
-        return { ...data, results: [...data.results, { id: me.id, name: me.name, correct, ms: action.ms, at: now }] };
+        return { ...data, results: [...data.results, { id: me.id, name: myName, correct, ms: action.ms, at: now }] };
       });
       return { status: 200, body: { duel: publicDuel(duel) } };
     }
@@ -234,18 +238,18 @@ export type PartnerSummary = { name: string; picture?: string; streak: number; s
 export type FriendSummary = PartnerSummary & { id: string };
 
 export async function friendSummaries(store: AccountStore, account: SocialAccount, myId: string, now: number): Promise<FriendSummary[]> {
-  const summaries: FriendSummary[] = [];
-  for (const friend of friendRefs(account)) {
-    if (friend.id === myId) continue;
-    const theirs = await store.readSocial(friend.id);
-    if (!friendRefs(theirs).some(ref => ref.id === myId)) continue;
+  // All friends are read at once, not one after the other: with 50 friends this is one wait instead of 50.
+  const refs = friendRefs(account).filter(friend => friend.id !== myId);
+  const accounts = await Promise.all(refs.map(friend => store.readSocial(friend.id)));
+  return refs.flatMap((friend, i): FriendSummary[] => {
+    const theirs = accounts[i];
+    if (!friendRefs(theirs).some(ref => ref.id === myId)) return [];
     const today = dayStats(theirs.workspace, dayOf(now));
     const own = streak(theirs.workspace, now);
-    summaries.push({ id: friend.id, name: theirs.profile?.name || friend.name, picture: theirs.profile?.picture,
+    return [{ id: friend.id, name: theirs.profile?.name || friend.name, picture: pictureUrl(theirs.profile?.picture) ?? undefined,
       streak: own.days, shared: sharedStreak(account.workspace, theirs.workspace, now).days,
-      todayDone: own.todayDone, todayPoints: today.points, goal: goalOf(theirs.workspace) });
-  }
-  return summaries;
+      todayDone: own.todayDone, todayPoints: today.points, goal: goalOf(theirs.workspace) }];
+  });
 }
 
 export async function partnerSummary(store: AccountStore, account: Account, myId: string, now: number): Promise<PartnerSummary | null> {

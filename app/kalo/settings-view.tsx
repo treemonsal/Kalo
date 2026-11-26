@@ -16,7 +16,7 @@ const LEGACY_FORMAT = "kartenloop";
 type Props = {
   workspace: Workspace; busy: boolean; theme: Appearance; design: Design; chatLink: string;
   pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string };
-  onBack: () => void;
+  onBack: () => void; backLabel: string;
   mutate: Mutate; onTheme: (value: Appearance) => void; onDesign: (value: Design) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
 };
@@ -25,7 +25,7 @@ const GOALS = [10, 20, 30, 50];
 const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
 const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
 
-export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack }: Props) {
+export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack, backLabel }: Props) {
   const sound = useStored(SOUND_KEY) !== "off";
   const morning = push?.morning ?? "06:45";
   const evening = push?.evening ?? "19:30";
@@ -61,7 +61,7 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
   }
 
   return <>
-    <div className="view-bar"><button className="icon-button" aria-label="Zurück zum Profil" onClick={onBack}><Icon kind="back" /></button></div>
+    <div className="view-bar"><button className="icon-button" aria-label={"Zurück zu " + backLabel} onClick={onBack}><Icon kind="back" /></button></div>
     <header className="page-head"><h1>Einstellungen</h1></header>
     <section className="panel flow"><h2>Darstellung</h2>
       <div className="setting"><span className="setting-label" id="design">Design</span>

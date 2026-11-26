@@ -2,7 +2,7 @@
 
 import type { Deck, Direction, Workspace } from "../../lib/learning";
 import { examIn, openCards, recentDecks, type Step } from "../../lib/progress";
-import { DeckTile } from "./profile-view";
+import { DeckTile } from "./deck-tile";
 import { DailyHero } from "./progress-ui";
 import { EmptyState } from "./feedback";
 import { Icon } from "./icons";
@@ -11,18 +11,16 @@ import { dateFormat, plural, type Draft } from "./types";
 export type DueSet = { deck: Deck; side: Direction; count: number; oldest: number };
 export type Recent = { title: string; mode: string; detail: string; progress: number; onOpen: () => void };
 type Props = {
-  workspace: Workspace; decks: Deck[]; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
+  workspace: Workspace; decks: Deck[]; busy: boolean; dueSets: DueSet[]; dueCount: number; dueByDeck: Map<string, number>; nextReview: number; now: number;
   recent?: Recent; step: Step; drafts: Draft[]; onStep: (step: Step) => void; onGoal: () => void; onDraft: (draft: Draft) => void; onProfile: () => void;
   unsaved?: { title: string; onOpen: () => void; onDiscard: () => void };
   onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onCreate: () => void; onExamDate: (deck: Deck) => void;
 };
 
-export default function HomeView({ workspace, decks, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDraft, onProfile, unsaved, onReview, onOpenDeck, onCreate, onExamDate }: Props) {
+export default function HomeView({ workspace, decks, busy, dueSets, dueCount, dueByDeck, nextReview, now, recent, step, drafts, onStep, onGoal, onDraft, onProfile, unsaved, onReview, onOpenDeck, onCreate, onExamDate }: Props) {
   const missingDates = decks.filter(deck => !deck.examDate);
   const exam = decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
     .filter(item => item.days !== null && item.days <= 30).sort((a, b) => a.days! - b.days!)[0];
-  const dueByDeck = new Map<string, number>();
-  dueSets.forEach(item => dueByDeck.set(item.deck.id, (dueByDeck.get(item.deck.id) ?? 0) + item.count));
   // Exactly one main action. An open learning round wins over a previous card view.
   const primary = step.kind === "resume"
     ? { label: "Weiterlernen", title: workspace.decks.find(deck => deck.id === step.deckId)?.title ?? step.label, detail: step.detail, progress: recent?.mode !== "Karten" ? recent?.progress : undefined, open: () => onStep(step) }

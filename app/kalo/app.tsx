@@ -63,6 +63,10 @@ function problemFor(status: number, message: string | undefined, retry: () => vo
   return { message: message || "Diese Änderung war nicht möglich." };
 }
 
+type Tab = "home" | "profile";
+/** What each browser history entry remembers about the app. */
+type Entry = { kaloView: View; deckId: string; tab: Tab; prev: View };
+
 export default function Kalo({ accountId, initialAppearance, initialDesign }: { accountId: string; initialAppearance: Appearance; initialDesign: Design }) {
   const bookmarkKey = "kalo-last:" + accountId;
   const editorKey = "kalo-editor:" + accountId;
@@ -85,7 +89,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   const [time, setTime] = useState(0);
   const [confirm, confirmDialog] = useConfirm();
   const [duelToken, setDuelToken] = useState("");
-  const [deckOrigin, setDeckOrigin] = useState<"home" | "profile">("home");
+  const [tab, setTab] = useState<Tab>("home");
   const [celebrate, setCelebrate] = useState<{ previous: number; streak: number } | null>(null);
   const [explain, setExplain] = useState<{ deckId: string; card: Card; direction: Direction } | null>(null);
   const [sync, setSync] = useState<SyncState>({ pending: 0, phase: "idle" });
@@ -334,7 +338,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   useEffect(() => { restorable.current = { editor: Boolean(editor), cards: Boolean(cardsStart), duel: Boolean(duelToken) }; });
   useEffect(() => {
     const pop = (event: PopStateEvent) => {
-      const state = event.state as { kaloView?: View; deckId?: string } | null;
+      const state = event.state as Partial<Entry> | null;
       const ready = restorable.current;
       let next: View = state?.kaloView ?? "home";
       if (next === "editor" && !ready.editor) next = "home";
@@ -342,21 +346,37 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
       if (next === "duel" && !ready.duel) next = "home";
       setProblem(null);
       if (state?.deckId !== undefined) setDeckId(state.deckId);
+      setTab(state?.tab ?? "home");
       setView(next);
     };
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
-  useEffect(() => { history.replaceState({ kaloView: view, deckId }, ""); }, [view, deckId]);
+  useEffect(() => {
+    const current = history.state as Partial<Entry> | null;
+    history.replaceState({ ...current, kaloView: view, deckId, tab } satisfies Partial<Entry>, "");
+  }, [view, deckId, tab]);
 
+  /**
+   * Every view belongs to a tab, like in a native app: Home or Profil. Opening Home or Profil switches the tab,
+   * every other view keeps it. The dock highlights the tab and «Zurück» leads back into it.
+   */
   function navigate(next: View) {
     if (next === view) {
       window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
       return;
     }
     setProblem(null);
-    if (next !== view) history.pushState({ kaloView: next, deckId }, "");
+    const nextTab: Tab = next === "home" || next === "profile" ? next : tab;
+    history.pushState({ kaloView: next, deckId, tab: nextTab, prev: view } satisfies Entry, "");
+    setTab(nextTab);
     setView(next);
+  }
+
+  /** Back to a view: a step back in the history when that is where we came from, so the back gesture does not loop. */
+  function goBack(target: View) {
+    if ((history.state as Partial<Entry> | null)?.prev === target) history.back();
+    else navigate(target);
   }
 
   function changeEditor(update: (current: Editor) => Editor) {
@@ -518,8 +538,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openDeck(item: Deck, from: "home" | "profile" = "home") {
-    setDeckOrigin(from);
+  function openDeck(item: Deck) {
     setDeckId(item.id); setFilter("all"); setDirection("front"); setWriting(false); navigate("deck");
   }
 
@@ -642,8 +661,8 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     };
   }
 
-  const profileView = view === "profile" || view === "profile-edit" || view === "stats" || view === "settings";
-  const homeView = !profileView && view !== "chat";
+  const profileView = tab === "profile";
+  const homeView = tab === "home";
   const creating = view === "editor" || view === "import";
   const writingBusy = busy || sync.phase === "blocked";
 
@@ -685,7 +704,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
             </EmptyState>
           : <LibrarySkeleton />)}
 
-        {workspace && view === "home" && <HomeView workspace={workspace} decks={activeHomeDecks} busy={writingBusy} dueSets={homeDueSets} dueCount={homeDueCount} nextReview={nextReview}
+        {workspace && view === "home" && <HomeView workspace={workspace} decks={activeHomeDecks} busy={writingBusy} dueSets={homeDueSets} dueCount={homeDueCount} dueByDeck={dueByDeck} nextReview={nextReview}
           recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined, activeHomeDecks)}
           drafts={data?.drafts ?? []} onDraft={draft => edit(undefined, draft)} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
@@ -699,16 +718,16 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
 
         {workspace && view === "profile" && <ProfileView workspace={workspace} now={time}
           profile={data?.profile ?? { name: "Du", picture: null, custom: false }} friends={data?.friends ?? []} dueByDeck={dueByDeck}
-          onOpenDeck={item => openDeck(item, "profile")} onCreate={() => edit()} />}
+          onOpenDeck={openDeck} onCreate={() => edit()} />}
 
-        {data && view === "profile-edit" && <ProfileEditor profile={data.profile ?? { name: "Du", picture: null, custom: false }} friends={data.friends ?? []} busy={writingBusy} mutate={mutate}
-          onBack={() => navigate("profile")} onInvite={() => void inviteFriend()} onRemove={friend => void removeFriend(friend)} onError={message => setProblem({ message })} />}
+        {data?.profile && view === "profile-edit" && <ProfileEditor profile={data.profile} friends={data.friends ?? []} busy={writingBusy} mutate={mutate}
+          onBack={() => goBack("profile")} onInvite={() => void inviteFriend()} onRemove={friend => void removeFriend(friend)} onError={message => setProblem({ message })} />}
 
-        {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => history.back()} />}
+        {workspace && view === "stats" && <StatsView workspace={workspace} now={time} onBack={() => goBack("profile")} />}
 
         {workspace && view === "deck" && deck && <DeckView workspace={workspace} deck={deck} time={time} busy={writingBusy}
           direction={direction} filter={filter} writing={writing} onDirection={setDirection} onFilter={setFilter} onWriting={setWriting}
-          onHome={() => navigate(deckOrigin)} backLabel={deckOrigin === "profile" ? "Profil" : "Home"} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
+          onHome={() => goBack(tab)} backLabel={tab === "profile" ? "Profil" : "Home"} onEdit={() => edit(deck)} onCards={() => openCards(deck, direction, filter)} onStart={mode => void start(mode)}
           onChat={() => openChat(deck)} onResume={session?.deckId === deck.id && !session.done ? resume
             : workspace?.pausedSessions?.some(s => s.deckId === deck.id) ? () => void resumeSaved(workspace.pausedSessions!.find(s => s.deckId === deck.id)!) : undefined}
           onResumeSession={saved => void resumeSaved(saved)}
@@ -744,7 +763,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
 
         {workspace && view === "settings" && <SettingsView workspace={workspace} busy={writingBusy} theme={theme} design={design} chatLink={chatLink}
           mutate={mutate} onError={message => setProblem(message ? { message } : null)} onNotice={setNotice}
-          pushKey={data?.pushKey} push={data?.push} onBack={() => navigate("profile")}
+          pushKey={data?.pushKey} push={data?.push} backLabel={tab === "profile" ? "Profil" : "Home"} onBack={() => goBack(tab)}
           onTheme={value => { setTheme(value); applyAppearance(value); }}
           onDesign={value => { setDesign(value); applyDesign(value); }}
           onChatLink={value => {

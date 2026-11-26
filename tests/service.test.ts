@@ -280,7 +280,7 @@ test("Push: VAPID-Signatur ist gültig, Erinnerung kommt einmal am Morgen", asyn
   assert.match(text.title, /fällig/);
 });
 
-test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werden abgelehnt", async () => {
+test("Profil: eigener Name und Bild, das Bild reist nicht mit jeder Aktion, der Partner sieht beides", async () => {
   const { store, request, now } = setup();
   type Profiled = Social & { profile: { name: string; picture: string | null; custom: boolean }; partner?: { name: string; picture?: string } | null };
   const call = async (owner: string, action: unknown) => data<Profiled>(api(request(owner, { action }), store, now));
@@ -288,17 +288,30 @@ test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werd
   const start = await data<Profiled>(api(request("alice"), store, now));
   assert.deepEqual(start.profile, { name: "alice", picture: null, custom: false }, "ohne eigenen Namen der Anmeldename");
   const named = await call("alice", { type: "profile", name: " Alice ", picture });
-  assert.deepEqual(named.profile, { name: "Alice", picture, custom: true });
+  assert.equal(named.profile.name, "Alice");
+  assert.equal(named.profile.custom, true);
+  assert.match(named.profile.picture ?? "", /^\/api\/workspace\?picture=[0-9a-f-]{36}$/, "nur eine Adresse, nicht das Bild");
+  assert.ok(!JSON.stringify(await call("alice", save)).includes("base64"), "eine normale Aktion schickt kein Bild mit");
+  // The picture loads from its own address, also without sign-in headers (images do not send them).
+  const image = await api(request(null, undefined, named.profile.picture!), store, now);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("content-type"), "image/jpeg");
+  assert.deepEqual([...new Uint8Array(await image.arrayBuffer())].slice(0, 3), [0xff, 0xd8, 0xff]);
+  assert.equal((await api(request(null, undefined, "/api/workspace?picture=" + crypto.randomUUID()), store, now)).status, 404);
   assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:text/html;base64,PHNjcmlwdD4=" } }), store, now)).status, 400, "nur JPEG");
   assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:image/jpeg;base64," + "A".repeat(130_000) } }), store, now)).status, 400, "zu gross");
+  const replaced = await call("alice", { type: "profile", picture });
+  assert.notEqual(replaced.profile.picture, named.profile.picture);
+  assert.equal((await api(request(null, undefined, named.profile.picture!), store, now)).status, 404, "altes Bild aufgeräumt");
   const { token } = await call("alice", { type: "invitePartner" });
   const bob = await call("bob", { type: "acceptPartner", token });
-  assert.equal(bob.partner?.name, "Alice", "die Einladung trägt den eigenen Namen");
-  assert.equal(bob.partner?.picture, picture);
+  assert.equal(bob.partner?.name, "Alice", "der Partner sieht den eigenen Namen");
+  assert.equal(bob.partner?.picture, replaced.profile.picture);
   await call("alice", { type: "profile", name: "", picture: null });
   const after = await data<Profiled>(api(request("bob"), store, now));
   assert.equal(after.partner?.picture, undefined, "entferntes Bild ist weg");
-  assert.equal((await data<Profiled>(api(request("alice"), store, now))).profile.name, "alice", "leerer Name nimmt wieder den Anmeldenamen");
+  assert.equal(after.partner?.name, "alice", "ohne eigenen Namen wieder der Anmeldename, nicht der alte");
+  assert.equal((await api(request(null, undefined, replaced.profile.picture!), store, now)).status, 404);
 });
 
 test("Erneute Zustellung nach verlorener Antwort zählt eine Wischbewertung genau einmal", async () => {

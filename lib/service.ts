@@ -3,6 +3,7 @@ import { ConflictError, actionShape, apply, cardLearningDigest, deckInput, empty
 import type { PushSettings } from "./push.ts";
 import { friendSummaries, notice, publicDuel, runSocial, socialShape, type Duel, type FriendRef, type Share } from "./social.ts";
 import { isDurableAction, actionShuffle } from "./learning-sync.ts";
+import { PICTURE_MAX, PICTURE_PREFIX, pictureBytes, pictureKey, pictureUrl, type StoredPicture } from "./picture.ts";
 import { explainPair } from "./explanations.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
@@ -18,9 +19,7 @@ export type Account = {
 export type Profile = { name?: string; picture?: string };
 export type SocialAccount = Pick<Account, "friends" | "partner" | "profile" | "workspace">;
 
-/** Own profile pictures: a small square JPEG as a data URL, made in the browser. */
-export const PICTURE_PREFIX = "data:image/jpeg;base64,";
-export const PICTURE_MAX = 120_000;
+/** Own profile pictures arrive as a small square JPEG data URL, made in the browser, and are stored in their own row (lib/picture.ts). */
 const pictureShape = z.string().max(PICTURE_MAX).refine(value => value.startsWith(PICTURE_PREFIX) && /^[A-Za-z0-9+/]+=*$/.test(value.slice(PICTURE_PREFIX.length)), "Ungültiges Bild.");
 
 export class AccountStore {
@@ -149,7 +148,7 @@ function displayName(account: Account, req: Request) {
 }
 function visible(account: Account, req: Request) {
   return {
-    profile: { name: displayName(account, req), picture: account.profile?.picture ?? null, custom: Boolean(account.profile?.name) },
+    profile: { name: displayName(account, req), picture: pictureUrl(account.profile?.picture), custom: Boolean(account.profile?.name) },
     workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {}, confirmed: account.syncClients ?? {},
     push: { enabled: Boolean(account.push?.subs.length), morning: account.push?.morning ?? "06:45", evening: account.push?.evening ?? "19:30" },
   };
@@ -201,7 +200,8 @@ class Rejection extends Error {
   }
 }
 
-function change(account: Account, action: Mutation, now: number, identity?: string) {
+/** `picture` is the token of a picture row stored just before, for a profile action that sets a new picture. */
+function change(account: Account, action: Mutation, now: number, identity?: string, picture?: string) {
   account.selections = account.selections.filter(item => item.expires > now);
   if (action.type === "share") {
     const deck = account.workspace.decks.find(item => item.id === action.deckId);
@@ -216,7 +216,7 @@ function change(account: Account, action: Mutation, now: number, identity?: stri
   if (action.type === "profile") {
     const next: Profile = { ...account.profile };
     if (action.name !== undefined) { if (action.name) next.name = action.name; else delete next.name; }
-    if (action.picture !== undefined) { if (action.picture) next.picture = action.picture; else delete next.picture; }
+    if (action.picture !== undefined) { if (picture) next.picture = picture; else delete next.picture; }
     account.profile = next;
   } else if (action.type === "revoke") {
     account.selections = account.selections.filter(item => item.token !== action.token);
@@ -255,6 +255,13 @@ export async function explainApi(req: Request, store: AccountStore, lookup: (url
 }
 
 export async function api(req: Request, store: AccountStore, now = Date.now(), options: { pushKey?: string } = {}) {
+  // Images load without the app's sign-in headers. The token is random and changes with every new picture.
+  const pictureToken = req.method === "GET" ? new URL(req.url).searchParams.get("picture") : null;
+  if (pictureToken !== null) {
+    const picture = z.string().uuid().safeParse(pictureToken).success ? await store.getRecord<StoredPicture>(pictureKey(pictureToken)) : null;
+    if (!picture) return json({ error: "Bild nicht gefunden." }, 404);
+    return new Response(pictureBytes(picture.data), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" } });
+  }
   const owner = ownerOf(req);
   if (!owner) return json({ error: "Melde dich mit ChatGPT an." }, 401);
   if (req.method === "GET") {
@@ -288,7 +295,7 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     const input = await body(req);
     const social = z.object({ action: socialShape }).safeParse(input);
     if (social.success) {
-      const reply = await runSocial(store, { id: owner, name: displayName(await store.read(owner), req) }, social.data.action, now);
+      const reply = await runSocial(store, { id: owner, signInName: nameOf(req), name: async () => displayName(await store.read(owner), req) }, social.data.action, now);
       const { account, ...rest } = reply.body as { account?: Account };
       if (!account) return json(rest, reply.status);
       return json({ ...visible(account, req), ...await socialVisible(store, account, owner, now), ...rest }, reply.status);
@@ -298,16 +305,22 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     const { action, requestId, at, content, clientId, sequence } = parsed.data;
     if (requestId && (!clientId || !sequence) || !requestId && (clientId || sequence)) return json({ error: "Die lokale Anfrage ist unvollständig." }, 400);
     if (requestId && !isDurableAction(action)) return json({ error: "Diese Aktion kann nicht nachträglich übertragen werden." }, 400);
+    // Replies to learning actions (swipes, answers, ratings) leave out friends: the app keeps the last known ones,
+    // and a swipe must not read every friend's account. Other changes still bring friends along.
+    const reply = async (account: Account) => isDurableAction(action) ? visible(account, req) : await currentVisible(store, account, req, owner, now);
+    const picture = action.type === "profile" && action.picture ? crypto.randomUUID() : undefined;
+    if (picture && action.type === "profile" && action.picture) await store.putRecord(pictureKey(picture), 0, { owner, data: action.picture } satisfies StoredPicture);
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
       const account = await store.read(owner);
+      const previous = account.profile?.picture;
       if (clientId && sequence) {
         const confirmed = account.syncClients?.[clientId] ?? 0;
-        if (sequence <= confirmed) return json(await currentVisible(store, account, req, owner, now));
-        if (sequence !== confirmed + 1) return json({ ...await currentVisible(store, account, req, owner, now), error: "Eine frühere Bewertung wird noch übertragen.", retryable: true }, 409);
+        if (sequence <= confirmed) return json(await reply(account));
+        if (sequence !== confirmed + 1) return json({ ...await reply(account), error: "Eine frühere Bewertung wird noch übertragen.", retryable: true }, 409);
       }
       if (requestId && content && action.type === "sortCard") {
         const card = account.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId);
-        if (!card || cardLearningDigest(card) !== content) return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
+        if (!card || cardLearningDigest(card) !== content) return json({ ...await reply(account), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
       }
       let token: string | undefined;
       const actionTime = requestId && at !== undefined ? Math.min(at, now) : now;
@@ -316,19 +329,24 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
           : action.type === "rate" ? account.workspace.reviews[(account.workspace.session?.queue[action.cursor] ?? "") + ":" + account.workspace.session?.direction] : undefined;
         const pass = action.type === "cardPass" ? account.workspace.passes?.[action.deckId + ":" + action.direction] : undefined;
         if (review?.lastReview && Date.parse(review.lastReview) > actionTime || pass && pass.updated > actionTime) {
-          return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karten wurden inzwischen auf einem anderen Gerät weiter gelernt. Prüfe die lokalen Bewertungen." }, 409);
+          return json({ ...await reply(account), error: "Diese Karten wurden inzwischen auf einem anderen Gerät weiter gelernt. Prüfe die lokalen Bewertungen." }, 409);
         }
       }
-      try { token = change(account, action, actionTime, requestId); }
+      try { token = change(account, action, actionTime, requestId, picture); }
       catch (error) {
         if (!(error instanceof Rejection)) throw error;
+        if (picture) await store.dropRecord(pictureKey(picture));
         // The current state goes along, so the client shows what actually happened.
-        return json({ ...await currentVisible(store, account, req, owner, now), error: error.message }, error.status);
+        return json({ ...await reply(account), error: error.message }, error.status);
       }
       if (clientId && sequence) account.syncClients = { ...account.syncClients, [clientId]: sequence };
-      if (await store.write(owner, account)) return json({ ...await currentVisible(store, account, req, owner, now), revision: account.revision + 1, token });
+      if (await store.write(owner, account)) {
+        if (previous && previous !== account.profile?.picture) await store.dropRecord(pictureKey(previous));
+        return json({ ...await reply(account), revision: account.revision + 1, token });
+      }
     }
-    return json({ ...await currentVisible(store, await store.read(owner), req, owner, now), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut.", retryable: true }, 409);
+    if (picture) await store.dropRecord(pictureKey(picture));
+    return json({ ...await reply(await store.read(owner)), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut.", retryable: true }, 409);
   } catch (error) {
     if (error instanceof InputError) return json({ error: error.message }, 400);
     console.error("Kalo workspace write failed");
