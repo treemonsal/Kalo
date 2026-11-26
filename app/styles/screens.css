@@ -43,15 +43,15 @@
   position: fixed; z-index: 9; left: 50%; top: 38%; display: grid; justify-items: center; gap: var(--space-2); min-width: 240px;
   padding: var(--space-6) var(--space-7); border: 1px solid var(--glass-edge); border-radius: 28px; text-align: center;
   background: var(--glass); box-shadow: var(--shadow-float); backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
-  transform: translate(-50%, -50%); animation: celebrate-in 520ms var(--ease-spring) both, toast-out var(--t-base) var(--ease-exit) 3.3s forwards;
+  transform: translate(-50%, -50%); animation: celebrate-in calc(520ms * var(--motion-scale)) var(--ease-spring) both, toast-out var(--t-base) var(--ease-exit) 3.3s forwards;
 }
 .goal-celebration strong { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.02em; }
 .goal-celebration span { display: flex; align-items: center; gap: 6px; color: var(--mark); font-weight: 600; }
 @keyframes celebrate-in { from { opacity: 0; transform: translate(-50%, -40%) scale(.9); } }
 .goal-burst { position: relative; display: grid; place-items: center; width: 96px; height: 80px; }
-.celebration-ring { display: grid; place-items: center; color: var(--known-ink); animation: pop 600ms var(--ease-spring) both; }
+.celebration-ring { display: grid; place-items: center; color: var(--known-ink); animation: pop calc(600ms * var(--motion-scale)) var(--ease-spring) both; }
 .celebration-ring .icon-svg { width: 52px; height: 52px; }
-.goal-burst i { position: absolute; top: 50%; left: 50%; width: 7px; height: 7px; border-radius: 2px; background: var(--mark); opacity: 0; animation: spark 800ms var(--ease-settle) 120ms both; }
+.goal-burst i { position: absolute; top: 50%; left: 50%; width: 7px; height: 7px; border-radius: 2px; background: var(--mark); opacity: 0; animation: spark calc(800ms * var(--motion-scale)) var(--ease-settle) calc(120ms * var(--motion-scale)) both; }
 .goal-burst i:nth-of-type(1) { --x: -52px; --y: -26px; } .goal-burst i:nth-of-type(2) { --x: -20px; --y: -44px; background: var(--known-ink); }
 .goal-burst i:nth-of-type(3) { --x: 22px; --y: -46px; } .goal-burst i:nth-of-type(4) { --x: 52px; --y: -20px; background: var(--known-ink); }
 .goal-burst i:nth-of-type(5) { --x: -50px; --y: 22px; background: var(--known-ink); } .goal-burst i:nth-of-type(6) { --x: -14px; --y: 42px; }
@@ -60,14 +60,14 @@
 /* Combo, gold card, mastered */
 .combo-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: var(--radius-pill);
-  color: var(--mark); background: none; font-weight: 600; font-variant-numeric: tabular-nums; animation: pop 420ms var(--ease-spring);
+  color: var(--mark); background: none; font-weight: 600; font-variant-numeric: tabular-nums; animation: pop calc(420ms * var(--motion-scale)) var(--ease-spring);
 }
 .question-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .gold-badge { display: inline-flex; align-items: center; gap: 4px; color: light-dark(#8a6200, #f0d48a); font-size: var(--fs-caption); font-weight: 600; }
 .question[data-gold] { border-color: light-dark(#e2b84a, #6f6034); box-shadow: 0 0 0 3px light-dark(#f6e3a8, #2a2716), var(--shadow-surface); }
 .mastered-stamp {
   display: inline-flex; align-items: center; gap: 4px; margin-left: var(--space-2);
-  color: var(--known-ink); font-size: 11px; letter-spacing: .02em; text-transform: none; animation: pop 480ms var(--ease-spring) both;
+  color: var(--known-ink); font-size: 11px; letter-spacing: .02em; text-transform: none; animation: pop calc(480ms * var(--motion-scale)) var(--ease-spring) both;
 }
 
 /* Exams, partner, subjects */
@@ -193,10 +193,10 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .donut { position: relative; display: grid; place-items: center; width: 148px; height: 148px; flex: none; }
 .donut svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 .donut-track { fill: none; stroke: var(--line); stroke-width: 14; }
-.donut-segment { fill: none; stroke-width: 14; stroke-linecap: butt; animation: donut-draw 900ms var(--ease-settle) both; }
+.donut-segment { fill: none; stroke-width: 14; stroke-linecap: butt; animation: donut-draw calc(900ms * var(--motion-scale)) var(--ease-settle) both; }
 .donut-segment.donut-known { stroke: var(--known-ink); }
-.donut-segment.donut-later { stroke: var(--again-ink); animation-delay: 120ms; }
-.donut-segment.donut-skipped { stroke: var(--line-strong); animation-delay: 200ms; }
+.donut-segment.donut-later { stroke: var(--again-ink); animation-delay: calc(120ms * var(--motion-scale)); }
+.donut-segment.donut-skipped { stroke: var(--line-strong); animation-delay: calc(200ms * var(--motion-scale)); }
 @keyframes donut-draw { from { stroke-dasharray: 0 calc(var(--size) + var(--rest)); } }
 .donut-label { position: relative; display: grid; justify-items: center; line-height: 1.05; }
 .donut-label strong { font-size: 2.3rem; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
@@ -376,12 +376,12 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 
 /* The streak lights up first; only the day count follows. */
 .streak-feedback { position: fixed; inset: 0; z-index: 14; display: grid; place-items: center; pointer-events: none; }
-.streak-celebration { pointer-events: auto; display: grid; justify-items: center; gap: 12px; width: 180px; padding: 22px 16px; border: 1px solid var(--line); border-radius: 28px; background: var(--paper); box-shadow: var(--shadow-raised); color: var(--ink); animation: streak-arrive 320ms var(--ease-settle), streak-away 240ms var(--ease-exit) 3.15s forwards; }
+.streak-celebration { pointer-events: auto; display: grid; justify-items: center; gap: 12px; width: 180px; padding: 22px 16px; border: 1px solid var(--line); border-radius: 28px; background: var(--paper); box-shadow: var(--shadow-raised); color: var(--ink); animation: streak-arrive calc(320ms * var(--motion-scale)) var(--ease-settle), streak-away calc(240ms * var(--motion-scale)) var(--ease-exit) 3.15s forwards; }
 .streak-fire { width: 80px; height: 100px; overflow: visible; }
-.fire-outer { fill: var(--mark); transform-origin: center bottom; animation: flame-light 1300ms var(--ease-settle) both; }
-.fire-inner { fill: #ffdb6e; animation: flame-core 1300ms var(--ease-settle) both; }
+.fire-outer { fill: var(--mark); transform-origin: center bottom; animation: flame-light calc(1300ms * var(--motion-scale)) var(--ease-settle) both; }
+.fire-inner { fill: #ffdb6e; animation: flame-core calc(1300ms * var(--motion-scale)) var(--ease-settle) both; }
 .streak-count { display: block; height: 1em; min-width: 3ch; overflow: hidden; font-size: 64px; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
-.streak-count-track { display: flex; flex-direction: column; animation: streak-roll 620ms var(--ease-settle) 850ms both; }
+.streak-count-track { display: flex; flex-direction: column; animation: streak-roll calc(620ms * var(--motion-scale)) var(--ease-settle) calc(850ms * var(--motion-scale)) both; }
 .streak-count-track > span { display: block; flex: none; height: 1em; line-height: 1; }
 @keyframes streak-arrive { from { opacity: 0; transform: scale(.94) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes streak-away { to { opacity: 0; transform: scale(.97); } }

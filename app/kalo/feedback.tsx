@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { finePointer, openDialog, prefersReducedMotion } from "./motion";
+import { finePointer, motionDuration, openDialog, prefersReducedMotion } from "./motion";
 
 /** An error always comes with something the person can do next. */
 export type Problem = { message: string; action?: { label: string; run: () => void }; link?: { label: string; href: string } };
@@ -50,7 +50,7 @@ function ConfirmDialog({ ask, onDone }: { ask: Ask; onDone: (value: boolean) => 
     const element = dialog.current;
     if (!element || prefersReducedMotion()) { element?.close(); onDone(value); return; }
     element.dataset.closing = "true";
-    window.setTimeout(() => { element.close(); onDone(value); }, 160);
+    window.setTimeout(() => { element.close(); onDone(value); }, motionDuration(160));
   }
 
   return <dialog ref={dialog} className="sheet-dialog" aria-labelledby="confirm-title" aria-describedby={ask.message ? "confirm-message" : undefined}

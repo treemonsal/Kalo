@@ -9,17 +9,21 @@ import { dimThemeColor } from "./theme";
  */
 export type Spring = { response: number; damping: number };
 
+/** Twenty percent more time for app motion. Keep --motion-scale in globals.css in sync. */
+export const MOTION_SCALE = 1.2;
+export const motionDuration = (milliseconds: number) => Math.round(milliseconds * MOTION_SCALE);
+
 export const springs = {
   /** A card or element returning to rest, no overshoot. */
-  settle: { response: 0.36, damping: 1 },
+  settle: { response: 0.36 * MOTION_SCALE, damping: 1 },
   /** A released drag that carries momentum back, slight overshoot. */
-  release: { response: 0.4, damping: 0.82 },
+  release: { response: 0.4 * MOTION_SCALE, damping: 0.82 },
   /** An element coming back into view (undo). */
-  enter: { response: 0.42, damping: 0.9 },
+  enter: { response: 0.42 * MOTION_SCALE, damping: 0.9 },
 } satisfies Record<string, Spring>;
 
 /** A throw keeps the finger's velocity and accelerates out of view (px/s and px/s²). */
-export const toss = { minSpeed: 1500, acceleration: 6000 };
+export const toss = { minSpeed: 1500 / MOTION_SCALE, acceleration: 6000 / MOTION_SCALE ** 2 };
 
 /** Advances a damped spring by dt seconds. Starts from the current value and velocity, so it can be interrupted. */
 export function stepSpring(x: number, velocity: number, target: number, spring: Spring, dt: number) {
@@ -102,7 +106,7 @@ export function growFromPress(element: HTMLElement, duration = 260) {
   element.animate([
     { opacity: 0, transform: "scale(.9)", transformOrigin: origin },
     { opacity: 1, transform: "scale(1)", transformOrigin: origin },
-  ], { duration, easing: "cubic-bezier(.2,.8,.2,1)" });
+  ], { duration: motionDuration(duration), easing: "cubic-bezier(.2,.8,.2,1)" });
 }
 
 /** Leaves the way it came: shrinks back into the point it grew out of. Resolves when it is gone. */
@@ -112,7 +116,7 @@ export function shrinkToPress(element: HTMLElement, duration = 170): Promise<voi
   return element.animate([
     { opacity: 1, transform: "scale(1)", transformOrigin: origin },
     { opacity: 0, transform: "scale(.9)", transformOrigin: origin },
-  ], { duration, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => undefined, () => undefined);
+  ], { duration: motionDuration(duration), easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).finished.then(() => undefined, () => undefined);
 }
 
 /**

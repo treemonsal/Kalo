@@ -8,7 +8,7 @@ import { play } from "./sound";
 import { Icon, Key } from "./icons";
 import ExamplesButton from "./examples-button";
 import { clozeFrom, exampleLines } from "../../lib/examples";
-import { finePointer, prefersReducedMotion, textSize } from "./motion";
+import { finePointer, motionDuration, prefersReducedMotion, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
 import { parseStored, readStored, writeStored } from "./storage";
 import ProgressBeam from "./progress-beam";
@@ -91,7 +91,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
     leaving.current = true;
     const from = element.style.transform || "translateX(0px)";
     element.animate([{ transform: from, opacity: 1 }, { transform: "translateX(" + direction * 110 + "%) rotate(" + direction * 6 + "deg)", opacity: 0 }],
-      { duration: 200, easing: "cubic-bezier(.4,0,1,1)" }).finished.finally(() => {
+      { duration: motionDuration(200), easing: "cubic-bezier(.4,0,1,1)" }).finished.finally(() => {
         element.style.transform = "";
         leaving.current = false;
         setResult(null);
@@ -193,7 +193,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
         if (Math.abs(current.dx) > 70) advance(current.dx < 0 ? -1 : 1);
         else if (current.dx) {
           const element = panel.current;
-          element.animate?.([{ transform: element.style.transform }, { transform: "translateX(0px)" }], { duration: 220, easing: "cubic-bezier(.2,.8,.2,1)" });
+          element.animate?.([{ transform: element.style.transform }, { transform: "translateX(0px)" }], { duration: motionDuration(220), easing: "cubic-bezier(.2,.8,.2,1)" });
           element.style.transform = "";
         }
       }}
