@@ -11,6 +11,7 @@ import { clozeFrom, exampleLines } from "../../lib/examples";
 import { finePointer, prefersReducedMotion, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
 import { parseStored, readStored, writeStored } from "./storage";
+import ProgressBeam from "./progress-beam";
 
 type Session = NonNullable<Workspace["session"]>;
 type Question = NonNullable<ReturnType<typeof question>>;
@@ -47,7 +48,7 @@ function Celebration() {
   return <div className="celebration" aria-hidden="true"><span><Icon kind="check" size="l" /></span><i /><i /><i /><i /><i /><i /></div>;
 }
 
-/** One segment per card: recognised in a choice, recalled once, or learned (recalled twice). */
+/** Recognised in a choice, recalled once, or learned (recalled twice). */
 function level(tally: Session["tally"][string] | undefined) {
   if (!tally) return 0;
   if (tally.streak >= 2) return 3;
@@ -56,9 +57,13 @@ function level(tally: Session["tally"][string] | undefined) {
 }
 
 function Mastery({ session }: { session: Session }) {
-  return <div className="mastery" aria-hidden="true">
-    {session.initial.map(id => <i key={id} data-level={level(session.tally[id])} />)}
-  </div>;
+  return <ProgressBeam colors={session.initial.map(id => {
+    const tally = session.tally[id];
+    if (tally?.missed) return "var(--again-ink)";
+    const strength = level(tally);
+    return strength === 3 ? "var(--known-ink)" : strength === 2 ? "color-mix(in srgb, var(--known-ink) 55%, var(--line))"
+      : strength === 1 ? "color-mix(in srgb, var(--known-ink) 25%, var(--line))" : "var(--line)";
+  })} />;
 }
 
 type Props = {
@@ -141,9 +146,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
         <Icon kind="flame" filled /> {session.combo}</span>}
     </div>
     {session.mode === "learn" && session.initial.length > 0 ? <div className="study-progress">
-      {/* Up to twelve cards get one segment each; longer units get a plain bar that stays readable. */}
-      {session.initial.length <= 12 ? <Mastery session={session} />
-        : <div className="meter unit"><i style={{ width: (session.initial.reduce((sum, id) => sum + Math.min(2, session.tally[id]?.streak ?? 0), 0) / (session.initial.length * 2)) * 100 + "%" }} /></div>}
+      <Mastery session={session} />
       <span>{mastered.length} von {session.initial.length} sitzen{session.done ? "" : " · Runde " + session.round + " von " + MAX_LEARN_ROUNDS}</span>
     </div> : !session.done || shown ? <div className="study-progress">
       <div className="meter"><i style={{ width: (answered / total) * 100 + "%" }} /></div>
