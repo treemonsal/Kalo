@@ -26,16 +26,17 @@ export default function ProfileView({ workspace, now, profile, friends, dueByDec
       <Avatar name={profile.name} picture={profile.picture} size={84} />
       <h1 className="profile-title">{profile.name}</h1>
       <ul className="profile-metrics">
-        <li aria-label={workspace.decks.length + " Sets"} title="Sets"><Icon kind="library" /><span>{workspace.decks.length}</span></li>
-        <li aria-label={cards + " Karten"} title="Karten"><Icon kind="cards" /><span>{cards}</span></li>
-        <li aria-label={days + " Tage Serie"} title="Serie" data-active={days > 0}><Icon kind="flame" filled={days > 0} /><span>{days}</span></li>
+        {/* Each number keeps a short word: after a week away, a bare icon with a number says nothing. */}
+        <li><span className="metric-value"><Icon kind="library" />{workspace.decks.length}</span><small>Sets</small></li>
+        <li><span className="metric-value"><Icon kind="cards" />{cards}</span><small>Karten</small></li>
+        <li data-active={days > 0}><span className="metric-value"><Icon kind="flame" filled={days > 0} />{days}</span><small>{days === 1 ? "Tag Serie" : "Tage Serie"}</small></li>
       </ul>
     </section>
     {friends.length > 0 && <section className="profile-friends" aria-label="Freunde"><div className="friend-tiles">{friends.map(friend =>
       <div key={friend.id} className="friend-tile"><Avatar name={friend.name} picture={friend.picture} size={44} /><span>{friend.name}</span><span className="friend-streak" aria-label={friend.shared + " Tage gemeinsam"} data-active={friend.shared > 0}><Icon kind="flame" filled={friend.shared > 0} size="s" />{friend.shared}</span></div>
     )}</div></section>}
     <section aria-labelledby="sets" className="sets">
-      <div className="section-head"><h2 id="sets" aria-label="Meine Sets"><Icon kind="library" /><span className="count">{workspace.decks.length}</span></h2>
+      <div className="section-head"><h2 id="sets">Meine Sets <span className="count">{workspace.decks.length}</span></h2>
         {workspace.decks.length > 2 && <label className="search"><Icon kind="search" /><span className="sr-only">Sets durchsuchen</span><input type="search" value={search} placeholder="Suchen" onChange={event => setSearch(event.target.value)} /></label>}
       </div>
       {decks.length ? <div className="decks">{decks.map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>

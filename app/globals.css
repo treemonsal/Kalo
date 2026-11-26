@@ -199,7 +199,8 @@ p { color: var(--muted); }
 @media (hover: hover) and (pointer: fine) {
   .button:hover:not(:disabled) { border-color: var(--line-strong); }
   .button.primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
-  .icon-button:hover:not(:disabled), .pill-button:hover:not(:disabled), .text-button:hover:not(:disabled) { color: var(--focus); }
+  /* Hover stays in the palette: brighter ink, not the blue that is reserved for the keyboard focus ring. */
+  .icon-button:hover:not(:disabled), .pill-button:hover:not(:disabled), .text-button:hover:not(:disabled) { color: var(--ink); }
   :is(.deck-tile, .mode, button.continue-card):hover:not(:disabled) { border-color: var(--line-strong); box-shadow: var(--shadow-raised); }
 }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -738,7 +739,6 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .exam-note { display: flex; align-items: center; gap: var(--space-2); grid-column: 1 / -1; font-size: var(--fs-footnote); font-weight: 600; }
 .exam-note[data-soon="true"] { color: var(--again-ink); }
 .plan-panel { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-.social-actions { margin-bottom: var(--space-4); }
 .partner-card {
   display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3) var(--space-4);
   border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper);
@@ -768,9 +768,12 @@ details[open] > summary { margin-bottom: var(--space-3); }
 .stat-tile > .icon-svg, .stat-tile .flame { margin-bottom: var(--space-2); color: var(--faint); }
 .stat-tile .flame[data-on="true"] { color: var(--mark); }
 .stat-tile strong { color: var(--ink); font-size: var(--fs-title); font-variant-numeric: tabular-nums; }
+.stat-tile small { color: var(--muted); font-size: var(--fs-footnote); }
 .week-bars { position: relative; display: grid; grid-template-columns: repeat(7, 1fr); align-items: end; gap: var(--space-2); height: 150px; padding-bottom: 22px; }
 .week-bar { position: relative; display: flex; align-items: end; justify-content: center; height: 100%; }
-.week-bar i { width: min(100%, 34px); border-radius: 8px 8px 3px 3px; background: var(--line-strong); }
+.week-bar i { position: relative; width: min(100%, 34px); border-radius: 8px 8px 3px 3px; background: var(--line-strong); }
+.week-bar i b { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); color: var(--muted); font-size: var(--fs-caption); font-weight: 600; font-variant-numeric: tabular-nums; }
+.week-bar[data-today="true"] i b { color: var(--ink); }
 .week-bar[data-reached="true"] i { background: var(--known-ink); }
 .week-bar[data-today="true"] small { color: var(--ink); font-weight: 600; }
 .week-bar small { position: absolute; bottom: -22px; color: var(--muted); font-size: var(--fs-caption); }
@@ -990,7 +993,9 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 /* A calm profile: centred name, consistent icon metrics, editing in its own view. */
 .profile-title { margin: 0; max-width: 100%; width: 100%; text-align: center; font-size: var(--fs-title); font-weight: 600; overflow-wrap: anywhere; }
 .profile-metrics { display: flex; justify-content: center; align-items: center; gap: clamp(24px, 8vw, 48px); margin: 4px 0 0; padding: 0; list-style: none; }
-.profile-metrics li { display: flex; align-items: center; gap: 7px; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profile-metrics li { display: grid; justify-items: center; gap: 2px; }
+.profile-metrics .metric-value { display: flex; align-items: center; gap: 7px; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.profile-metrics small { color: var(--muted); font-size: var(--fs-caption); }
 .profile-metrics .icon-svg { width: 21px; height: 21px; color: var(--muted); }
 .profile-metrics li[data-active="true"] .icon-svg { color: var(--mark); }
 .profile-friends { margin-bottom: var(--space-5); }
@@ -1097,3 +1102,28 @@ button.answer-box.placeholder span { font-size: var(--fs-footnote); font-weight:
 .shell[data-view="study"] .brand { min-height: 44px; color: var(--faint); font-size: var(--fs-callout); }
 /* Editor fields grow with their text instead of showing a resize handle. */
 @supports (field-sizing: content) { .edit-list textarea { field-sizing: content; resize: none; } }
+
+/* Signature: a set is a small stack of index cards. A second card edge peeks out under each tile, like the stack under the learning card. */
+.deck-tile { box-shadow: 0 5px 0 -3px var(--soft), 0 5px 0 -2px var(--line), var(--shadow-surface); }
+@media (hover: hover) and (pointer: fine) { .deck-tile:hover:not(:disabled) { box-shadow: 0 5px 0 -3px var(--soft), 0 5px 0 -2px var(--line-strong), var(--shadow-raised); } }
+.decks { row-gap: var(--space-4); }
+
+/* «⋯» menu on the set page, growing from its button. */
+.view-bar-actions { display: flex; align-items: center; gap: var(--space-1); }
+/* Each block of a view animates in its own layer; the bar with the menu sits above the blocks that follow it. */
+.view-bar:has(.more-menu) { position: relative; z-index: 5; }
+.more-menu { position: relative; margin: 0; }
+.more-menu > summary, .more-menu[open] > summary { margin: 0; list-style: none; cursor: pointer; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-list {
+  position: absolute; z-index: 8; top: calc(100% + 4px); right: 0; display: grid; min-width: 220px; padding: var(--space-1);
+  border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--raised); box-shadow: var(--shadow-raised);
+  transform-origin: top right; animation: menu-in var(--t-quick) var(--ease-settle);
+}
+.more-list button { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius-control); color: var(--ink); background: none; text-align: left; font-weight: 500; }
+.more-list button span { display: grid; }
+.more-list small { color: var(--muted); font-size: var(--fs-caption); font-weight: 400; }
+.more-list button:active { background: var(--soft); }
+@media (hover: hover) and (pointer: fine) { .more-list button:hover { background: var(--soft); } }
+@keyframes menu-in { from { opacity: 0; transform: scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .more-list { animation: none; } }
