@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConflictError, actionShape, apply, deckDigest, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
+import { ConflictError, actionShape, apply, cardLearningDigest, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
 import type { PushSettings } from "./push.ts";
 import { friendSummaries, notice, publicDuel, runSocial, socialShape, type Duel, type FriendRef, type Share } from "./social.ts";
 import { isDurableAction, actionShuffle } from "./learning-sync.ts";
@@ -307,7 +307,7 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
       }
       if (requestId && content && action.type === "sortCard") {
         const card = account.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId);
-        if (!card || deckDigest({ title: "", cards: [card] }) !== content) return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
+        if (!card || cardLearningDigest(card) !== content) return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
       }
       let token: string | undefined;
       const actionTime = requestId && at !== undefined ? Math.min(at, now) : now;
@@ -354,6 +354,7 @@ const tools = [
           type: "object", required: ["front", "back"], additionalProperties: false,
           properties: {
             front: { type: "string", maxLength: 1500 }, back: { type: "string", maxLength: 1500 },
+            examples: { type: "string", maxLength: 6000, description: "Optionale Beispiele als separater Hilfstext. Keine Frage oder Antwort; wird nicht abgefragt." },
             frontAliases: { type: "array", items: { type: "string" }, maxItems: 12 },
             backAliases: { type: "array", items: { type: "string" }, maxItems: 12 },
           },

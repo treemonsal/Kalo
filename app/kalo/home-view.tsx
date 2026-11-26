@@ -11,14 +11,15 @@ import { dateFormat, plural, type Draft } from "./types";
 export type DueSet = { deck: Deck; side: Direction; count: number; oldest: number };
 export type Recent = { title: string; mode: string; detail: string; progress: number; onOpen: () => void };
 type Props = {
-  workspace: Workspace; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
+  workspace: Workspace; decks: Deck[]; busy: boolean; dueSets: DueSet[]; dueCount: number; nextReview: number; now: number;
   recent?: Recent; step: Step; drafts: Draft[]; onStep: (step: Step) => void; onGoal: () => void; onDraft: (draft: Draft) => void; onProfile: () => void;
   unsaved?: { title: string; onOpen: () => void; onDiscard: () => void };
-  onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onCreate: () => void;
+  onReview: (item: DueSet) => void; onOpenDeck: (deck: Deck) => void; onCreate: () => void; onExamDate: (deck: Deck) => void;
 };
 
-export default function HomeView({ workspace, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDraft, onProfile, unsaved, onReview, onOpenDeck, onCreate }: Props) {
-  const exam = workspace.decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
+export default function HomeView({ workspace, decks, busy, dueSets, dueCount, nextReview, now, recent, step, drafts, onStep, onGoal, onDraft, onProfile, unsaved, onReview, onOpenDeck, onCreate, onExamDate }: Props) {
+  const missingDates = decks.filter(deck => !deck.examDate);
+  const exam = decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(workspace, deck).length }))
     .filter(item => item.days !== null && item.days <= 30).sort((a, b) => a.days! - b.days!)[0];
   const dueByDeck = new Map<string, number>();
   dueSets.forEach(item => dueByDeck.set(item.deck.id, (dueByDeck.get(item.deck.id) ?? 0) + item.count));
@@ -32,6 +33,12 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
   return <>
     <header className="page-head"><h1>Was lernst du heute?</h1></header>
 
+    {missingDates.length > 0 && <section className="panel exam-date-prompt" aria-labelledby="exam-date-prompt-title">
+      <span className="exam-date-mark" aria-hidden="true"><Icon kind="calendar" size="l" /></span>
+      <h2 id="exam-date-prompt-title">Trage deine Prüfungstermine ein</h2>
+      <button className="button primary" disabled={busy} onClick={() => onExamDate(missingDates[0])}>Prüfungsdatum eintragen</button>
+    </section>}
+
     {workspace.decks.length === 0 ? <EmptyState icon="cards" title="Dein erstes Set">
       <button className="button primary" onClick={onCreate}><Icon kind="plus" /> Set erstellen</button>
     </EmptyState> : <>
@@ -39,7 +46,8 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
         <span className="continue-copy"><span className="eyebrow">{primary.label}</span><strong>{primary.title}</strong>
           {primary.progress !== undefined && <span className="meter"><i style={{ width: Math.round(primary.progress * 100) + "%" }} /></span>}
         </span><span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
-      </button> : <div className="daily-done"><Icon kind="check" /><div><strong>Alles für heute geschafft</strong>{Number.isFinite(nextReview) && <p>Nächste Wiederholung {dateFormat.format(nextReview)}</p>}</div></div>}
+      </button> : decks.length === 0 ? <EmptyState icon="calendar" title="Keine offenen Prüfungen" text="Deine bisherigen Themen findest du weiterhin unter Alle Sets."><button className="button" onClick={onProfile}>Alle Sets</button></EmptyState>
+        : <div className="daily-done"><Icon kind="check" /><div><strong>Alles für heute geschafft</strong>{Number.isFinite(nextReview) && <p>Nächste Wiederholung {dateFormat.format(nextReview)}</p>}</div></div>}
       <DailyHero workspace={workspace} now={now} onGoal={onGoal} />
     </>}
 
@@ -63,10 +71,10 @@ export default function HomeView({ workspace, busy, dueSets, dueCount, nextRevie
 
     {exam && <button className="home-exam" onClick={() => onOpenDeck(exam.deck)}><Icon kind="calendar" /><span><strong>{exam.deck.title}</strong><span>{exam.days === 0 ? "Prüfung heute" : "Prüfung in " + exam.days + (exam.days === 1 ? " Tag" : " Tagen")}{exam.open ? " · " + exam.open + " Karten offen" : ""}</span></span><Icon kind="chevronRight" size="s" /></button>}
 
-    {workspace.decks.length > 0 && <section aria-labelledby="recent" className="sets">
+    {decks.length > 0 && <section aria-labelledby="recent" className="sets">
       <div className="section-head"><h2 id="recent">Zuletzt</h2>
         <button className="text-button" onClick={onProfile}>Alle Sets <Icon kind="chevronRight" size="s" /></button></div>
-      <div className="decks">{recentDecks(workspace).map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>
+      <div className="decks">{recentDecks(workspace, 3, decks).map(deck => <DeckTile key={deck.id} workspace={workspace} deck={deck} now={now} due={dueByDeck.get(deck.id) ?? 0} onOpen={onOpenDeck} />)}</div>
     </section>}
   </>;
 }

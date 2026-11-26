@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { deckDigest, question, type Workspace } from "../lib/learning.ts";
+import { cardLearningDigest, deckDigest, question, type Workspace } from "../lib/learning.ts";
 import { WorkspaceProjection, type QueuedAction } from "../lib/learning-sync.ts";
 import { AccountStore, api, explainApi, mcp } from "../lib/service.ts";
 import type { PairExplanation } from "../lib/explanations.ts";
@@ -77,6 +77,33 @@ test("Worterklärungen laden ausschliesslich die aktuelle eigene Karte", async (
   assert.deepEqual(await store.read("alice"), account);
 });
 const tool = (name: string, args: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
+
+test("Beispiele bleiben in ChatGPT Entwürfen, gespeicherten und geteilten Sets erhalten", async () => {
+  const { store, request, now } = setup();
+  const examples = "Ein Beispiel.\nNoch eines.";
+  await mcp(request("alice", tool("kalo_create_draft", { title: "Mit Beispielen", cards: [{ front: "A", back: "B", examples }] })), store, now);
+  const draft = (await store.read("alice")).drafts[0];
+  assert.equal(draft.cards[0].examples, examples);
+  const saved = await data<ApiReply>(api(request("alice", { action: { type: "save", draftId: draft.id, title: draft.title, cards: draft.cards } }), store, now));
+  const deck = saved.workspace.decks[0];
+  assert.equal(deck.cards[0].examples, examples);
+  const shared = await data<ApiReply>(api(request("alice", { action: { type: "publish", deckId: deck.id } }), store, now));
+  const imported = await data<ApiReply>(api(request("bob", { action: { type: "importShare", token: shared.token } }), store, now));
+  assert.equal(imported.workspace.decks[0].cards[0].examples, examples);
+  assert.notEqual(imported.workspace.decks[0].cards[0].id, deck.cards[0].id);
+});
+
+test("Eine lokal gespeicherte Wischbewertung bleibt nach einer reinen Beispieländerung zustellbar", async () => {
+  const { store, request, now } = setup();
+  const saved = await data<ApiReply>(api(request("alice", { action: { type: "save", title: "Beispiele", cards: [{ front: "A", back: "B", examples: "Erstes Beispiel" }] } }), store, now));
+  const deck = saved.workspace.decks[0], card = deck.cards[0];
+  const content = cardLearningDigest(card);
+  await api(request("alice", { action: { type: "save", deckId: deck.id, title: deck.title, cards: [{ ...card, examples: "Neues Beispiel" }] } }), store, now + 1000);
+  const response = await api(request("alice", { requestId: crypto.randomUUID(), clientId: crypto.randomUUID(), sequence: 1, at: now, content,
+    action: { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: true, sortId: crypto.randomUUID() } }), store, now + 2000);
+  assert.equal(response.status, 200);
+  assert.equal((await store.read("alice")).workspace.decks[0].cards[0].examples, "Neues Beispiel");
+});
 
 type ApiReply = { workspace: Workspace; revision: number; drafts: { id: string }[]; token?: string };
 type McpReply = { result: { isError?: boolean } };

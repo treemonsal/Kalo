@@ -155,7 +155,7 @@ export async function runSocial(store: AccountStore, me: Me, action: SocialActio
       const deck = mine.workspace.decks.find(item => item.id === action.deckId);
       if (!deck) throw new Refusal("Dieses Set wurde nicht gefunden.", 404);
       const token = mine.published?.[deck.id] ?? crypto.randomUUID();
-      const cards = deck.cards.map(({ front, back, frontAliases, backAliases }) => ({ front, back, frontAliases, backAliases }));
+      const cards = deck.cards.map(({ front, back, examples, frontAliases, backAliases }) => ({ front, back, examples, frontAliases, backAliases }));
       const existing = await store.getRecord<Share>("share:" + token);
       const share: Share = { owner: me.id, ownerName: me.name, title: deck.title, cards, imports: existing?.data.imports ?? 0, created: existing?.data.created ?? now };
       if (!await store.putRecord("share:" + token, existing?.revision ?? 0, share)) throw new Refusal("Gerade wird gleichzeitig gespeichert. Versuche es erneut.", 409);

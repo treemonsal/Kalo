@@ -6,6 +6,7 @@ import { dayStats, goalOf, nextStep, type Step } from "../../lib/progress";
 import { GoalBanner, NextStepActions } from "./progress-ui";
 import { play } from "./sound";
 import { Icon, Key } from "./icons";
+import ExamplesButton from "./examples-button";
 import { finePointer, textSize } from "./motion";
 import { dateFormat, plural, type Mutate } from "./types";
 import { parseStored, readStored, writeStored } from "./storage";
@@ -147,13 +148,14 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const view = shown?.q ?? q;
   if (!view) return header;
   return <>{header}
-    <section className="panel question" data-gold={view.gold || undefined} aria-labelledby="prompt"
+    <section className="panel question" data-gold={view.gold || undefined} data-examples={Boolean(view.card.examples?.trim()) || undefined} aria-labelledby="prompt"
       onPointerDown={event => { swipeStart.current = shown && shown.to ? event.clientX : null; }}
       onPointerUp={event => {
         // On a result, a swipe to the left continues, like turning a page.
         if (swipeStart.current !== null && swipeStart.current - event.clientX > 70) setResult(null);
         swipeStart.current = null;
       }}>
+      <ExamplesButton key={shown ? shown.from : current} question={view.prompt} examples={view.card.examples} />
       <div className="question-content" key={"prompt:" + (shown ? shown.from : current)}>
         {view.gold && <span className="question-top"><span className="gold-badge"><Icon kind="sparkle" filled /> Gold · zählt doppelt</span></span>}
         <h2 id="prompt" className="prompt" data-size={textSize(view.prompt)}>{view.prompt}</h2>

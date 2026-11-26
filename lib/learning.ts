@@ -5,6 +5,7 @@ const side = z.string().trim().min(1).max(1500);
 const key = z.string().uuid();
 export const cardInput = z.object({
   front: side, back: side,
+  examples: z.string().trim().max(6000).optional(),
   frontAliases: z.array(side).max(12).default([]),
   backAliases: z.array(side).max(12).default([]),
   starred: z.boolean().default(false),
@@ -159,7 +160,12 @@ function hash(text: string) {
 
 /** Fingerprint of everything the editor can change, so stale editors cannot overwrite newer content. */
 export function deckDigest(deck: Pick<Deck, "title" | "cards">) {
-  return hash(JSON.stringify([deck.title, deck.cards.map(c => [c.id, c.front, c.back, c.frontAliases, c.backAliases])])).toString(36);
+  return hash(JSON.stringify([deck.title, deck.cards.map(c => [c.id, c.front, c.back, c.frontAliases, c.backAliases, ...(c.examples ? [c.examples] : [])])])).toString(36);
+}
+
+/** Help text edits do not change the question that a saved swipe rating refers to. */
+export function cardLearningDigest(card: Card) {
+  return deckDigest({ title: "", cards: [{ ...card, examples: undefined }] });
 }
 
 export function empty(): Workspace {
@@ -368,7 +374,8 @@ export function apply(previous: Workspace, raw: Action, now: number, order: Shuf
     // The editor does not show stars, so the stored marking wins over a possibly stale copy.
     const cards = action.cards.map(card => {
       const existing = card.id ? old?.cards.find(c => c.id === card.id) : undefined;
-      return { ...card, id: card.id ?? crypto.randomUUID(), starred: existing ? existing.starred : card.starred };
+      return { ...card, ...(card.examples === undefined && existing?.examples !== undefined ? { examples: existing.examples } : {}),
+        id: card.id ?? crypto.randomUUID(), starred: existing ? existing.starred : card.starred };
     });
     const ids = new Set(cards.map(card => card.id));
     if (ids.size !== cards.length || action.cards.some(card => card.id && !old?.cards.some(c => c.id === card.id))) {

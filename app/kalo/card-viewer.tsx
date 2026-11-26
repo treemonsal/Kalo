@@ -203,13 +203,11 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       </div>
     </section> : <>
       <Flashcard ref={flashcard} entry={entry} flipped={flipped}
-        card={{ key: card.id, question: card[direction], answer: card[other] }}
+        card={{ key: card.id, question: card[direction], answer: card[other], examples: card.examples }}
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
         hint={position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
       <div className="swipe-status">
-        {last ? <span className={last.known ? "rating-known" : "rating-again"} key={last.id}>
-          <Icon kind={last.known ? "check" : "repeat"} /> {last.known ? "Ich kann das" : "Später üben"}</span>
-          : <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>}
+        <span className="swipe-hint" aria-hidden="true"><Icon kind="back" size="s" /><Icon kind="repeat" size="s" /><span className="hint-gap" /><Icon kind="check" size="s" /><Icon kind="forward" size="s" /></span>
         {undoButton}
       </div>
       <div className="swipe-actions">

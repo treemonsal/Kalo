@@ -6,7 +6,7 @@ Webapp für Karteikarten, adaptive Lernrunden, Pauken und fällige Wiederholunge
 
 ## Aktueller Stand und Weiterarbeit
 
-Die gemeinsame Quelle ist [GitLab: hahntim518/kalo](https://gitlab.com/hahntim518/kalo), Branch `main`. GitHub ist nicht mehr die Arbeitsgrundlage. Vor Änderungen den aktuellen Stand von `main` laden und lokale Änderungen erhalten.
+GitHub `main` enthält seit 26.11.2026 den vollständigen veröffentlichten App-Stand von Sites Version 35. Für die Weiterarbeit mit Claude zuerst die [aktuelle Übergabe](docs/2026-11-26-github-handoff.md) lesen. Die gemeinsame Entwicklungshistorie liegt auch in [GitLab: hahntim518/kalo](https://gitlab.com/hahntim518/kalo). Dessen neuester Commit ist zusätzlich im GitHub-Branch [`sync/gitlab-main-20261126`](https://github.com/treemonsal/Kalo/tree/sync/gitlab-main-20261126) vollständig gesichert; er überschreibt bestehende Funktionen und besteht die Typprüfung nicht. Die dortigen neuen Änderungen müssen mit dem veröffentlichten Stand zusammengeführt werden. Vor Änderungen den aktuellen Stand laden und lokale Änderungen erhalten.
 
 Die zuvor nur auf ChatGPT Sites gespeicherten Ergänzungen bis Version 27 sind im [Übergabeprotokoll vom 18.11.2026](docs/2026-11-18-sites-handoff.md) beschrieben: Designauswahl mit bisherigem Design, braunes Logo, direkter Vollbildmodus, lokale Speicherung ohne Wartezeit beim Weiterlernen und zuverlässigere Wischgesten. Dieses Protokoll ergänzt die ältere Anforderungsprüfung und nennt die Dateien und Tests für die Weiterarbeit mit Claude.
 

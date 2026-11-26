@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { apply as applyShuffled, choices, deckDigest, empty, parseImport, question, reviewQueue, type Action, type Workspace } from "../lib/learning.ts";
+import { apply as applyShuffled, cardLearningDigest, choices, deckDigest, empty, matches, parseImport, question, reviewQueue, type Action, type Workspace } from "../lib/learning.ts";
 
 // Keeps the deck order so the scenarios below stay readable. Shuffling has its own test.
 const keep = <T,>(items: T[]) => items;
@@ -21,6 +21,47 @@ function submit(state: Workspace, answer: string, self?: boolean) {
   const current = state.session!;
   return apply(state, { type: "answer", sessionId: current.id, cursor: current.cursor, round: current.round, answer, self }, now);
 }
+
+test("Beispiele sind separate Hilfe und werden in keiner Lernrichtung zur Frage oder Antwort", () => {
+  const state = apply(empty(), { type: "save", title: "Beispiele", cards: [{ front: "west", back: "Westen", examples: "The sun sets in the west.\nEin zweites Beispiel." }] }, now);
+  const deck = state.decks[0], card = deck.cards[0];
+  for (const direction of ["front", "back"] as const) {
+    const started = apply(state, { type: "start", deckId: deck.id, mode: "learn", direction, filter: "all" }, now);
+    const q = question(started)!;
+    assert.equal(q.prompt, card[direction]);
+    assert.equal(q.answer, card[direction === "front" ? "back" : "front"]);
+    assert.equal(q.card.examples, card.examples);
+    assert.equal(matches(card, direction, card.examples!), false);
+  }
+  const restored = apply(empty(), { type: "restore", data: JSON.parse(JSON.stringify(state)) }, now);
+  assert.equal(restored.decks[0].cards[0].examples, card.examples);
+});
+
+test("Beispieländerungen erhalten Runden, Wiederholungsplan und Bewertungen", () => {
+  let state = apply(empty(), { type: "save", title: "Beispiele", cards: [{ front: "A", back: "B", examples: "Altes Beispiel" }] }, now);
+  const deck = state.decks[0], card = deck.cards[0];
+  state = apply(state, { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: false }, now);
+  state = apply(state, { type: "start", deckId: deck.id, mode: "learn", direction: "back", filter: "all" }, now);
+  const before = structuredClone(state);
+  const updated = apply(state, { type: "save", deckId: deck.id, title: deck.title, base: deckDigest(state.decks[0]), cards: [{ ...card, examples: "Neues Beispiel" }] }, now + 1000);
+  assert.equal(updated.decks[0].cards[0].examples, "Neues Beispiel");
+  for (const key of ["session", "pausedSessions", "reviews", "progress", "mistakes", "lastSort", "stats", "passes"] as const) assert.deepEqual(updated[key], before[key]);
+  assert.notEqual(deckDigest(updated.decks[0]), deckDigest(before.decks[0]));
+  assert.equal(cardLearningDigest(updated.decks[0].cards[0]), cardLearningDigest(card));
+  assert.throws(() => apply(updated, { type: "save", deckId: deck.id, title: deck.title, base: deckDigest(before.decks[0]), cards: [card] }, now), /inzwischen/);
+});
+
+test("Alte Speicheranfragen löschen keine Beispiele; leeres Beispiel wird bewusst entfernt", () => {
+  const state = apply(empty(), { type: "save", title: "Beispiele", cards: [{ front: "A", back: "B", examples: "Hilfstext" }] }, now);
+  const deck = state.decks[0], card = deck.cards[0];
+  const legacy = { id: card.id, front: card.front, back: card.back };
+  const kept = apply(state, { type: "save", deckId: deck.id, title: "Neuer Titel", cards: [legacy] }, now);
+  assert.equal(kept.decks[0].cards[0].examples, "Hilfstext");
+  const cleared = apply(kept, { type: "save", deckId: deck.id, title: deck.title, cards: [{ ...legacy, examples: "" }] }, now);
+  assert.equal(cleared.decks[0].cards[0].examples, "");
+  assert.equal(deckDigest({ title: deck.title, cards: [{ ...card, examples: "" }] }), deckDigest({ title: deck.title, cards: [{ ...card, examples: undefined }] }));
+  assert.throws(() => apply(state, { type: "save", deckId: deck.id, title: deck.title, cards: [{ ...card, examples: "x".repeat(6001) }] }, now));
+});
 
 test("unterbrochene Runden bleiben nach Wechsel und Sicherung an derselben Frage", () => {
   const { state, deck } = setup();

@@ -7,7 +7,6 @@
 :root[data-design="classic"] .eyebrow { font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
 :root[data-design="classic"] .brand { font-size: 1.35rem; font-weight: 760; letter-spacing: -.045em; }
 :root[data-design="classic"] .brand { color: light-dark(#161a3b, #f6f7fb); }
-:root[data-design="classic"] .brand-mark { color: #161a3b; }
 :root[data-design="classic"] .bottom-dock nav button:not(.nav-create) { font-weight: 650; }
 :root[data-design="classic"] .button { font-weight: 650; }
 :root[data-design="classic"] .pill-button, :root[data-design="classic"] .text-button { font-weight: 650; }
@@ -54,4 +53,3 @@
 :root[data-design="classic"] .due-alert-count { font-weight: 730; }
 :root[data-design="classic"] .goal-number { font-weight: 650; }
 :root[data-design="classic"] .streak-count { font-weight: 790; }
-:root[data-design="classic"] .brand-mark rect:nth-child(2) { fill: white; opacity: .3; }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { apply as applyShuffled, dayOf, empty, question, type Action, type Workspace } from "../lib/learning.ts";
-import { examIn, levels, recentDecks, nextStep, streak, streakOf, week } from "../lib/progress.ts";
+import { examIn, homeDecks, levels, recentDecks, nextStep, streak, streakOf, week } from "../lib/progress.ts";
 
 const keep = <T,>(items: T[]) => items;
 const apply = (state: Workspace, action: Action, time: number) => applyShuffled(state, action, time, keep);
@@ -143,4 +143,44 @@ test("Zuletzt zeigt die zuletzt geübten Sets, danach die neusten", () => {
   s = apply(s, { type: "sortCard", deckId: a.id, cardId: a.cards[0].id, direction: "front", known: true }, now);
   s = apply(s, { type: "sortCard", deckId: b.id, cardId: b.cards[0].id, direction: "front", known: true }, now + 1000);
   assert.deepEqual(recentDecks(s).map(item => item.title), ["B", "A", "D"]);
+});
+
+test("Home zeigt nur künftige Prüfungen und Themen ohne Datum, ohne alte Sets zu ändern", () => {
+  const s = deck(deck(deck(deck(empty(), "Gestern", 1), "Heute", 1), "Morgen", 1), "Ohne Datum", 1);
+  s.decks.find(d => d.title === "Gestern")!.examDate = day(-1);
+  s.decks.find(d => d.title === "Heute")!.examDate = day(0);
+  s.decks.find(d => d.title === "Morgen")!.examDate = day(1);
+  const before = structuredClone(s);
+  assert.deepEqual(homeDecks(s, now).map(d => d.title), ["Ohne Datum", "Morgen"]);
+  assert.deepEqual(s, before, "das Profil und der Lernstand behalten sämtliche Themen");
+  const tomorrow = s.decks.find(d => d.title === "Morgen")!;
+  assert.equal(homeDecks(s, now + DAY).includes(tomorrow), false);
+  tomorrow.examDate = day(3);
+  assert.equal(homeDecks(s, now + DAY).includes(tomorrow), true, "ein neuer Prüfungstermin aktiviert das Thema wieder");
+});
+
+test("Die Prüfung verschwindet um Mitternacht in Zürich, nicht erst nach dem UTC-Tag", () => {
+  const s = deck(empty(), "Prüfung", 1);
+  s.decks[0].examDate = "2026-11-24";
+  assert.equal(homeDecks(s, Date.parse("2026-11-23T22:59:59Z")).length, 1);
+  assert.equal(homeDecks(s, Date.parse("2026-11-23T23:00:00Z")).length, 0);
+  s.decks[0].examDate = "2026-07-01";
+  assert.equal(homeDecks(s, Date.parse("2026-06-30T21:59:59Z")).length, 1);
+  assert.equal(homeDecks(s, Date.parse("2026-06-30T22:00:00Z")).length, 0);
+});
+
+test("Home empfiehlt weder eine alte offene Runde noch fällige Karten einer abgeschlossenen Prüfung", () => {
+  let s = deck(deck(empty(), "Kommende Prüfung", 2), "Alte Prüfung", 2);
+  const [old, upcoming] = s.decks;
+  old.examDate = day(-1); upcoming.examDate = day(2);
+  s = apply(s, { type: "sortCard", deckId: old.id, cardId: old.cards[0].id, direction: "front", known: false }, now);
+  s = apply(s, { type: "start", deckId: old.id, mode: "learn", direction: "front", filter: "all" }, now);
+  const later = now + 3_600_000;
+  const active = homeDecks(s, later);
+  const step = nextStep(s, later, old.id, active);
+  assert.equal(step.kind, "learn");
+  assert.equal("deckId" in step && step.deckId, upcoming.id);
+  assert.equal(nextStep(s, later, old.id).kind, "resume", "im Profil bleibt die alte Runde manuell erreichbar");
+  assert.equal(nextStep(s, later, undefined, []).kind, "done");
+  assert.deepEqual(recentDecks(s, 3, active).map(d => d.id), [upcoming.id], "alte zuletzt geübte Sets verdrängen keine offenen Prüfungen");
 });

@@ -104,15 +104,21 @@ export function openCards(state: Workspace, deck: Deck, direction: Direction = "
   return deck.cards.filter(card => !secure(state, card.id, direction));
 }
 
+/** Home keeps undated topics, but an exam stops being open on its Zurich calendar day. */
+export function homeDecks(state: Workspace, now: number) {
+  const today = dayOf(now);
+  return state.decks.filter(deck => !deck.examDate || deck.examDate > today);
+}
+
 /** The sets used last: card passes and reviews count; unused sets follow, newest first. */
-export function recentDecks(state: Workspace, count = 3) {
+export function recentDecks(state: Workspace, count = 3, decks = state.decks) {
   const owner = new Map<string, string>();
-  state.decks.forEach(deck => deck.cards.forEach(card => owner.set(card.id, deck.id)));
+  decks.forEach(deck => deck.cards.forEach(card => owner.set(card.id, deck.id)));
   const used = new Map<string, number>();
   const touch = (deckId: string | undefined, at: number) => { if (deckId && at > (used.get(deckId) ?? 0)) used.set(deckId, at); };
   Object.entries(state.passes ?? {}).forEach(([key, pass]) => touch(key.split(":")[0], pass.updated));
   Object.entries(state.reviews).forEach(([key, review]) => { if (review.lastReview) touch(owner.get(key.split(":")[0]), Date.parse(review.lastReview)); });
-  return state.decks.map((deck, index) => ({ deck, at: used.get(deck.id) ?? -index - 1 }))
+  return decks.map((deck, index) => ({ deck, at: used.get(deck.id) ?? -index - 1 }))
     .sort((a, b) => b.at - a.at).slice(0, count).map(item => item.deck);
 }
 
@@ -136,23 +142,23 @@ const minutes = (cards: number) => Math.max(1, Math.round(cards * 0.3));
  * The most useful next thing to do, so a finished unit never ends in a dead end:
  * open round, due reviews, an exam that is close, the set in focus, shaky cards, then any open set.
  */
-export function nextStep(state: Workspace, now: number, focusDeckId?: string): Step {
+export function nextStep(state: Workspace, now: number, focusDeckId?: string, decks = state.decks): Step {
   const session = state.session;
-  const title = (id: string) => state.decks.find(deck => deck.id === id)?.title ?? "";
-  if (session && !session.done) return { kind: "resume", deckId: session.deckId, label: "Runde in " + title(session.deckId) + " fortsetzen", detail: "Du bist mitten in einer Runde" };
+  const title = (id: string) => decks.find(deck => deck.id === id)?.title ?? "";
+  if (session && !session.done && decks.some(deck => deck.id === session.deckId)) return { kind: "resume", deckId: session.deckId, label: "Runde in " + title(session.deckId) + " fortsetzen", detail: "Du bist mitten in einer Runde" };
 
-  const due = state.decks.flatMap(deck => (["front", "back"] as const).map(direction => ({ deck, direction, count: dueCards(state, deck.cards, direction, now).length })))
+  const due = decks.flatMap(deck => (["front", "back"] as const).map(direction => ({ deck, direction, count: dueCards(state, deck.cards, direction, now).length })))
     .filter(item => item.count > 0).sort((a, b) => b.count - a.count)[0];
   if (due) return { kind: "review", deckId: due.deck.id, direction: due.direction, count: due.count,
     label: due.count + " fällige Karten in " + due.deck.title, detail: "Etwa " + minutes(due.count) + " Minuten" };
 
-  const exam = state.decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(state, deck).length }))
+  const exam = decks.map(deck => ({ deck, days: examIn(deck, now), open: openCards(state, deck).length }))
     .filter(item => item.days !== null && item.days <= 14 && item.open > 0).sort((a, b) => a.days! - b.days!)[0];
   if (exam) return { kind: "learn", deckId: exam.deck.id, count: Math.min(LEARN_UNIT, exam.open),
     label: "Für die Prüfung: " + exam.deck.title, detail: (exam.days === 0 ? "Prüfung heute" : "Noch " + exam.days + (exam.days === 1 ? " Tag" : " Tage")) + " · " + exam.open + " Karten offen" };
 
-  const focus = state.decks.find(deck => deck.id === (focusDeckId ?? session?.deckId));
-  const ordered = focus ? [focus, ...state.decks.filter(deck => deck !== focus)] : state.decks;
+  const focus = decks.find(deck => deck.id === (focusDeckId ?? session?.deckId));
+  const ordered = focus ? [focus, ...decks.filter(deck => deck !== focus)] : decks;
   const learnable = ordered.map(deck => ({ deck, open: openCards(state, deck).filter(card => (state.progress[card.id + ":front"]?.streak ?? 0) < 2).length }))
     .find(item => item.open > 0);
   if (focus) {

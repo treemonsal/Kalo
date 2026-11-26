@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Appearance } from "../../lib/appearance";
 import type { Design } from "../../lib/design";
-import { apply, dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
+import { apply, cardLearningDigest, dayOf, deckDigest, dueCards, type Card, type CardInput, type Deck, type Direction, type Filter, type Mode, type Session } from "../../lib/learning";
 import type { FriendSummary } from "../../lib/social";
-import { dayStats, goalOf, nextStep, streak, type Step } from "../../lib/progress";
+import { dayStats, goalOf, homeDecks, nextStep, streak, type Step } from "../../lib/progress";
 import DuelView from "./duel-view";
 import { Avatar, shareLink } from "./progress-ui";
 import { play } from "./sound";
@@ -13,6 +13,7 @@ import CardViewer, { type UndoResult } from "./card-viewer";
 import ChatView from "./chat-view";
 import DeckView from "./deck-view";
 import EditorView from "./editor-view";
+import ExamDateDialog from "./exam-date-dialog";
 import { EmptyState, ErrorBanner, LibrarySkeleton, Toast, useConfirm, type Problem } from "./feedback";
 import HomeView, { type DueSet, type Recent } from "./home-view";
 import { Icon } from "./icons";
@@ -69,6 +70,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
   const [view, setView] = useState<View>("home");
   const [deckId, setDeckId] = useState("");
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [examDateDeckId, setExamDateDeckId] = useState<string | null>(null);
   const [importTarget, setImportTarget] = useState<"new" | "append">("new");
   const [direction, setDirection] = useState<Direction>("front");
   const [filter, setFilter] = useState<Filter>("all");
@@ -237,7 +239,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
         if (!outbox.current) throw new Error("Dein Lernstand wird noch geladen.");
         apply(dataRef.current.workspace, action, Date.now()); // Reject invalid actions before saving them to the outbox.
         const card = action.type === "sortCard" ? dataRef.current.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId) : undefined;
-        await outbox.current.enqueue(action, undefined, card ? deckDigest({ title: "", cards: [card] }) : undefined);
+        await outbox.current.enqueue(action, undefined, card ? cardLearningDigest(card) : undefined);
         if (confirmedData.current) accept(confirmedData.current);
         setTime(Date.now());
         options.onDone?.(true, 200);
@@ -402,7 +404,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     const result = await mutate({
       type: "save", title: editor.title, deckId: editor.deckId, draftId: editor.draftId, base: editor.base,
       cards: complete.map(item => ({ id: item.id, front: item.front, back: item.back,
-        frontAliases: item.frontAliases, backAliases: item.backAliases, starred: item.starred })),
+        examples: item.examples, frontAliases: item.frontAliases, backAliases: item.backAliases, starred: item.starred })),
     });
     if (!result) return;
     const savedId = editor.deckId ?? result.workspace.decks[0].id;
@@ -602,20 +604,26 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
       return ready.length ? [{ deck: item, side, count: ready.length, oldest: ready[0].due }] : [];
     }),
   ).sort((a, b) => a.oldest - b.oldest) ?? [];
-  const dueCount = dueSets.reduce((total, item) => total + item.count, 0);
+  const activeHomeDecks = workspace ? homeDecks(workspace, time) : [];
+  const homeDeckIds = new Set(activeHomeDecks.map(deck => deck.id));
+  const homeCardIds = new Set(activeHomeDecks.flatMap(deck => deck.cards.map(card => card.id)));
+  const homeDueSets = dueSets.filter(item => homeDeckIds.has(item.deck.id));
+  const homeDueCount = homeDueSets.reduce((total, item) => total + item.count, 0);
   // Keeps sending the in-app reminder for people who switched it on earlier.
-  useReminders(accountId, dueCount, time);
+  useReminders(accountId, homeDueCount, time);
   const dueByDeck = new Map<string, number>();
   dueSets.forEach(item => dueByDeck.set(item.deck.id, (dueByDeck.get(item.deck.id) ?? 0) + item.count));
-  const nextReview = Object.values(workspace?.reviews ?? {}).reduce((next, item) => {
+  const nextReview = Object.entries(workspace?.reviews ?? {}).reduce((next, [key, item]) => {
+    if (!homeCardIds.has(key.split(":")[0])) return next;
     const due = Date.parse(item.due);
     return due > time ? Math.min(next, due) : next;
   }, Infinity);
 
-  const recentDeck = lastActivity?.mode === "cards" ? workspace?.decks.find(item => item.id === lastActivity.deckId) : undefined;
+  const recentDeck = lastActivity?.mode === "cards" ? activeHomeDecks.find(item => item.id === lastActivity.deckId) : undefined;
   const recentCard = lastActivity?.mode === "cards" ? recentDeck?.cards.find(item => item.id === lastActivity.cardId) : undefined;
   const continueStudy = session && !session.done && (!recentCard || lastActivity?.mode === "study");
-  const studyDeck = continueStudy ? workspace?.decks.find(d => d.id === session.deckId) : undefined;
+  const studyDeck = continueStudy ? activeHomeDecks.find(d => d.id === session.deckId) : undefined;
+  const examDateDeck = workspace?.decks.find(deck => deck.id === examDateDeckId);
   let recent: Recent | undefined;
   if (continueStudy && studyDeck) {
     const learned = session.initial.filter(id => (session.tally[id]?.streak ?? 0) >= 2).length;
@@ -649,14 +657,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
     <div className="shell" data-view={view}>
       <a className="skip-link" href="#inhalt">Zum Inhalt</a>
       <header className="topbar">
-        <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">
-          {design === "current"
-            // eslint-disable-next-line @next/next/no-img-element -- kleines statisches App-Logo
-            ? <img src="/kalo-brown-128.png" width={30} height={30} alt="" />
-            :
-          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="currentColor" /><rect x="15" y="8" width="18" height="25" rx="5" fill="#d97757" transform="rotate(12 24 20)" /><rect x="8" y="7" width="19" height="25" rx="5" fill="white" transform="rotate(-10 18 19)" /><path d="M23 17a6 6 0 1 0 .5 6m-4-6 4 .5-.5-4" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          } Kalo
-        </button>
+        <button className="brand" onClick={() => navigate("home")} aria-label="Kalo, zur Bibliothek">Kalo</button>
         <div className="topbar-right">
           {data && (sync.pending > 0 || busy) && <span className="sync-status" role="status" aria-live="polite" data-state={sync.phase}>
             <button className="text-button" onClick={() => void outbox.current?.retry(true)} title={sync.error ?? (sync.pending ? "Auf diesem Gerät gesichert. Wird automatisch übertragen, sobald die Verbindung steht." : "Wird auf dem Server gespeichert.")}>
@@ -684,12 +685,17 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
             </EmptyState>
           : <LibrarySkeleton />)}
 
-        {workspace && view === "home" && <HomeView workspace={workspace} busy={writingBusy} dueSets={dueSets} dueCount={dueCount} nextReview={nextReview}
-          recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined)}
+        {workspace && view === "home" && <HomeView workspace={workspace} decks={activeHomeDecks} busy={writingBusy} dueSets={homeDueSets} dueCount={homeDueCount} nextReview={nextReview}
+          recent={recent} now={time} step={nextStep(workspace, time, lastActivity?.mode === "cards" ? lastActivity.deckId : undefined, activeHomeDecks)}
           drafts={data?.drafts ?? []} onDraft={draft => edit(undefined, draft)} onProfile={() => navigate("profile")} onStep={runStep} onGoal={() => navigate("settings")}
           unsaved={unsavedEditor ? { title: unsavedEditor.title, onOpen: () => { setEditor(unsavedEditor); navigate("editor"); }, onDiscard: () => writeStored(editorKey, null) } : undefined}
           onReview={item => void start("review", { target: item.deck, side: item.side, dueOnly: true })}
-          onOpenDeck={openDeck} onCreate={() => edit()} />}
+          onOpenDeck={openDeck} onCreate={() => edit()} onExamDate={deck => setExamDateDeckId(deck.id)} />}
+
+        {examDateDeck && <ExamDateDialog deck={examDateDeck} busy={writingBusy} onClose={() => setExamDateDeckId(null)} onSave={async date => {
+          if (!await mutate({ type: "setDeckMeta", deckId: examDateDeck.id, examDate: date }, { silent: true })) return false;
+          setExamDateDeckId(null); setNotice("Prüfungsdatum gespeichert"); return true;
+        }} />}
 
         {workspace && view === "profile" && <ProfileView workspace={workspace} now={time}
           profile={data?.profile ?? { name: "Du", picture: null, custom: false }} friends={data?.friends ?? []} dueByDeck={dueByDeck}
