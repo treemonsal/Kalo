@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { apply as applyShuffled, dayOf, empty, question, type Action, type Workspace } from "../lib/learning.ts";
-import { examIn, homeDecks, levels, recentDecks, nextStep, streak, streakOf, week } from "../lib/progress.ts";
+import { examIn, examPace, homeDecks, levels, recentDecks, nextStep, streak, streakOf, week } from "../lib/progress.ts";
 
 const keep = <T,>(items: T[]) => items;
 const apply = (state: Workspace, action: Action, time: number) => applyShuffled(state, action, time, keep);
@@ -183,4 +183,14 @@ test("Home empfiehlt weder eine alte offene Runde noch fällige Karten einer abg
   assert.equal(nextStep(s, later, old.id).kind, "resume", "im Profil bleibt die alte Runde manuell erreichbar");
   assert.equal(nextStep(s, later, undefined, []).kind, "done");
   assert.deepEqual(recentDecks(s, 3, active).map(d => d.id), [upcoming.id], "alte zuletzt geübte Sets verdrängen keine offenen Prüfungen");
+});
+
+test("Tagespensum bis zur Prüfung verteilt offene Karten auf die verbleibenden Tage", () => {
+  let s = deck(empty(), "Bilanz", 10);
+  const d = s.decks[0];
+  assert.equal(examPace(s, d, now), null, "ohne Datum kein Pensum");
+  s = apply(s, { type: "setDeckMeta", deckId: d.id, examDate: day(4) }, now);
+  assert.deepEqual(examPace(s, s.decks[0], now), { days: 4, open: 10, perDay: 3 });
+  s = apply(s, { type: "setDeckMeta", deckId: d.id, examDate: day(0) }, now);
+  assert.equal(examPace(s, s.decks[0], now), null, "am Prüfungstag kein Pensum mehr");
 });

@@ -7,6 +7,8 @@ export type Data = {
   confirmed?: Record<string, number>;
   published?: Record<string, string>; push?: { enabled: boolean; morning: string; evening: string };
   partner?: PartnerSummary | null; pushKey?: string | null;
+  /** Bytes used and allowed for this account, from the last full load. */
+  storage?: { used: number; limit: number };
   friends?: FriendSummary[];
   profile?: { name: string; picture: string | null; custom: boolean };
 };

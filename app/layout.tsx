@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { appearance, appearanceCookie } from "../lib/appearance";
 import { design, designCookie, darkBackground, designAssets } from "../lib/design";
 import "./globals.css";
+import "./styles/learning.css";
+import "./styles/screens.css";
 import "./classic-design.css";
 
 export async function generateMetadata(): Promise<Metadata> {

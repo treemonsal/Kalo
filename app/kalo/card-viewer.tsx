@@ -10,6 +10,7 @@ import { ErrorBanner, type Confirm, type Problem } from "./feedback";
 import Flashcard, { type FlashcardHandle } from "./flashcard";
 import { Icon, Key } from "./icons";
 import type { CardsStart, LastActivity, PassSnapshot } from "./types";
+import { readStored, writeStored } from "./storage";
 
 export type UndoResult = "ok" | "conflict" | "offline";
 type Swipe = { id: string; cardId: string; at: number; known: boolean };
@@ -34,6 +35,9 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
   const [sorted, setSorted] = useState(false);
   const [last, setLast] = useState<Swipe | null>(null);
   const [entry, setEntry] = useState<{ key: string; from: -1 | 1 } | null>(null);
+  // The very first card mode shows the swipe once with a short nudge to each side; after that never again.
+  const [demo] = useState(() => readStored("kalo-swipe-demo") !== "done");
+  useEffect(() => { if (demo) writeStored("kalo-swipe-demo", "done"); }, [demo]);
   const [pass, setPass] = useState<Record<string, boolean>>(start.pass);
   const [announce, setAnnounce] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
@@ -212,7 +216,7 @@ export default function CardViewer({ confirm, deck, start, direction, workspace,
       <Flashcard ref={flashcard} entry={entry} flipped={flipped}
         card={{ key: card.id, question: card[direction], answer: card[other], examples: card.examples }}
         next={nextCard && { key: nextCard.id, question: nextCard[direction], answer: nextCard[other] }}
-        hint={position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
+        hint={position === 0 && !last} demo={demo && position === 0 && !last} onFlip={() => setFlipped(value => !value)} onSwipe={sort} />
       <div className="swipe-status">
         {position === 0 ? <span className="swipe-hint">Wischen: links noch nicht, rechts kann ich</span> : <span />}
         {undoButton}

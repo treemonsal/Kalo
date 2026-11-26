@@ -367,3 +367,34 @@ test("Beispiel übernehmen und Lückentext-Karte anlegen, ohne Doppelte", () => 
   assert.equal(s.decks[0].cards[1].back, "die Rechnung");
   assert.throws(() => apply(s, { type: "addExample", deckId: deck.id, cardId: crypto.randomUUID(), example: "x" }, now));
 });
+
+test("Gemischtes Wiederholen nimmt fällige Karten aus mehreren Sets und bleibt gültig", () => {
+  let s = apply(empty(), { type: "save", title: "A", cards: [{ front: "a1", back: "b1" }, { front: "a2", back: "b2" }] }, now);
+  s = apply(s, { type: "save", title: "B", cards: [{ front: "c1", back: "d1" }] }, now);
+  const [b, a] = s.decks;
+  for (const deck of [a, b]) for (const card of deck.cards) s = apply(s, { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: false }, now);
+  const later = now + 3_600_000;
+  s = apply(s, { type: "start", deckId: a.id, mixed: [b.id], mode: "review", direction: "front", filter: "all", writing: false, dueOnly: true }, later);
+  assert.deepEqual(s.session?.mixed, [b.id]);
+  assert.equal(s.session?.queue.length, 3, "Karten aus beiden Sets");
+  const seen = new Set<string>();
+  while (s.session && !s.session.done) {
+    const q = question(s)!;
+    seen.add(q.card.front);
+    s = apply(s, { type: "rate", sessionId: s.session.id, cursor: s.session.cursor, grade: 3 }, later);
+  }
+  assert.deepEqual([...seen].sort(), ["a1", "a2", "c1"]);
+  s = apply(s, { type: "delete", deckId: b.id }, later);
+  assert.equal(s.session, null, "Löschen eines beteiligten Sets beendet die Runde");
+});
+
+test("«Kann ich» im Kartenmodus plant vorsichtiger ein als eine bewertete Wiederholung", () => {
+  let s = apply(empty(), { type: "save", title: "A", cards: [{ front: "a", back: "b" }, { front: "c", back: "d" }] }, now);
+  const deck = s.decks[0];
+  s = apply(s, { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true }, now);
+  const swiped = Date.parse(s.reviews[deck.cards[0].id + ":front"].due);
+  s = apply(s, { type: "start", deckId: deck.id, mode: "review", direction: "front", filter: "all", writing: false }, now);
+  while (s.session && !s.session.done && question(s)!.card.id !== deck.cards[1].id) s = apply(s, { type: "rate", sessionId: s.session.id, cursor: s.session.cursor, grade: 3 }, now);
+  s = apply(s, { type: "rate", sessionId: s.session!.id, cursor: s.session!.cursor, grade: 3 }, now);
+  assert.ok(swiped < Date.parse(s.reviews[deck.cards[1].id + ":front"].due));
+});

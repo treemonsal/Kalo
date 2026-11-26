@@ -16,6 +16,7 @@ const LEGACY_FORMAT = "kartenloop";
 type Props = {
   workspace: Workspace; busy: boolean; theme: Appearance; design: Design; chatLink: string;
   pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string };
+  storage?: { used: number; limit: number };
   onBack: () => void; backLabel: string;
   mutate: Mutate; onTheme: (value: Appearance) => void; onDesign: (value: Design) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
@@ -25,7 +26,7 @@ const GOALS = [10, 20, 30, 50];
 const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
 const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
 
-export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack, backLabel }: Props) {
+export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack, backLabel, storage }: Props) {
   const sound = useStored(SOUND_KEY) !== "off";
   const morning = push?.morning ?? "06:45";
   const evening = push?.evening ?? "19:30";
@@ -99,6 +100,11 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
       </>
     </section>}
     <section className="panel"><details className="advanced"><summary>Erweitert</summary><div className="flow">
+    {storage && <section className="flow storage"><h3>Speicher</h3>
+      <div className="storage-line"><span className="meter" data-full={storage.used / storage.limit > 0.85}><i style={{ width: Math.min(100, (storage.used / storage.limit) * 100) + "%" }} /></span>
+        <span>{Math.round((storage.used / storage.limit) * 100)} %</span></div>
+      <p className="muted">Sets, Beispiele und Lernstand teilen sich {Math.round(storage.limit / 100_000) / 10} MB. Lange Beispiele brauchen am meisten Platz.</p>
+    </section>}
     <section className="flow"><h3>Datensicherung</h3><p>Die JSON Datei enthält deine Kartensets und deinen Lernstand.</p>
       <div className="actions"><button className="button primary" onClick={backup}>Sicherung herunterladen</button><label className="button file-button">Sicherung wiederherstellen<input type="file" accept=".json,application/json" disabled={busy} onChange={async event => {
         const file = event.currentTarget.files?.[0];
