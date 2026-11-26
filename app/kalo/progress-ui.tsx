@@ -28,7 +28,8 @@ export function MasteryRing({ share }: { share: number }) {
   const length = 2 * Math.PI * radius;
   return <span className="mastery-ring" data-full={share >= 1} aria-hidden="true">
     <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r={radius} className="ring-track" /><circle cx="18" cy="18" r={radius} className="ring-fill" strokeDasharray={length} strokeDashoffset={length * (1 - share)} /></svg>
-    <span>{share >= 1 ? <Icon kind="check" size="s" /> : Math.round(share * 100)}</span>
+    {/* An empty ring is already clear; a «0» in every tile is only noise. */}
+    <span>{share >= 1 ? <Icon kind="check" size="s" /> : share > 0 ? Math.round(share * 100) : null}</span>
   </span>;
 }
 
@@ -50,7 +51,7 @@ export function DailyHero({ workspace, now, onGoal }: { workspace: Workspace; no
 export function NextStepCard({ step, onStep }: { step: Step; onStep: (step: Step) => void }) {
   if (step.kind === "done" || step.kind === "review") return null;
   return <button className="continue-card" onClick={() => onStep(step)}>
-    <span className="continue-copy"><span className="eyebrow">Als Nächstes</span><strong>{step.label}</strong><span className="muted">{step.detail}</span></span>
+    <span className="continue-copy"><strong>{step.label}</strong><span className="muted">{step.detail}</span></span>
     <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
   </button>;
 }

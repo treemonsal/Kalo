@@ -76,7 +76,7 @@ export default function DuelView({ token, mutate, onHome, onShare }: Props) {
   return <section className="duel">
     <div className="view-bar"><button className="text-button" aria-label="Zurück zu Home" onClick={onHome}><Icon kind="back" /> Home</button>
       {phase === "play" && <span className="duel-clock" aria-live="off"><Icon kind="bolt" /> {seconds(elapsed)}</span>}</div>
-    <header className="page-head"><div><span className="eyebrow">Duell · {duel.ownerName}</span><h1>{duel.title}</h1></div></header>
+    <header className="page-head"><div><h1>{duel.title}</h1><p className="muted">Duell von {duel.ownerName}</p></div></header>
 
     {phase === "intro" && <section className="panel milestone">
       <span className="finish-mark open"><Icon kind="swords" size="l" /></span>

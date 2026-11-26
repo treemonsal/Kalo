@@ -74,7 +74,7 @@ export default function DeckView(props: Props) {
     </header>
 
     {props.onResume && <button className="continue-card compact" onClick={props.onResume}>
-      <span className="continue-copy"><span className="eyebrow">Offene Runde</span><strong>Weitermachen</strong></span>
+      <span className="continue-copy"><strong>Weitermachen</strong><span className="continue-meter">Offene Runde</span></span>
       <span className="continue-go" aria-hidden="true"><Icon kind="forward" /></span>
     </button>}
 
