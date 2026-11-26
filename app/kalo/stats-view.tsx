@@ -1,7 +1,7 @@
 "use client";
 
-import { dayOf, secure, type Workspace } from "../../lib/learning";
-import { goalOf, streak, week } from "../../lib/progress";
+import { dayOf, type Workspace } from "../../lib/learning";
+import { goalOf, sitting, streak, week } from "../../lib/progress";
 import { Icon } from "./icons";
 import { MasteryRing, SubjectLevels } from "./progress-ui";
 
@@ -14,7 +14,7 @@ export default function StatsView({ workspace, now, onBack }: { workspace: Works
   const goal = goalOf(workspace);
   const top = Math.max(goal, ...summary.days.map(item => item.points));
   const decks = workspace.decks.map(deck => ({
-    deck, share: deck.cards.filter(card => secure(workspace, card.id, "front") || secure(workspace, card.id, "back")).length / Math.max(1, deck.cards.length),
+    deck, share: sitting(workspace, deck) / Math.max(1, deck.cards.length),
   })).sort((a, b) => b.share - a.share);
   const accuracy = summary.graded ? Math.round((summary.gradedCorrect / summary.graded) * 100) : null;
 

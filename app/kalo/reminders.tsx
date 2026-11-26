@@ -22,7 +22,7 @@ export function useReminders(accountId: string, dueCount: number, time: number) 
     try {
       if (localStorage.getItem(sent) === day) return;
       localStorage.setItem(sent, day);
-      void notify("Deine fälligen Karten warten in der Bibliothek.").catch(() => {
+      void notify("Deine fälligen Karten warten in Kalo.").catch(() => {
         if (localStorage.getItem(sent) === day) localStorage.removeItem(sent);
       });
     } catch { /* No repeated reminders when storage is unavailable. */ }

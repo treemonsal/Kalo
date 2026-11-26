@@ -8,7 +8,7 @@ import { prefersReducedMotion, textSize } from "./motion";
 
 type Props = { card: CardContent; flipped: boolean; hint?: boolean; onFlip: (event: MouseEvent<HTMLButtonElement>) => void; onBeforeExamples: () => boolean };
 
-/** One real face: fold it closed, replace its content, then unfold without mirroring any text. */
+/** One real face: turn it to its edge, replace its content, then turn it back without mirroring any text. */
 export default function CardFace({ card, flipped, hint, onFlip, onBeforeExamples }: Props) {
   const face = useRef<HTMLDivElement>(null);
   const [side, setSide] = useState(flipped);
@@ -39,12 +39,14 @@ export default function CardFace({ card, flipped, hint, onFlip, onBeforeExamples
     }
     void (async () => {
       try {
-        animation = element.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], { duration: 120, easing: "ease-in", fill: "forwards" });
+        // A real turn in depth instead of squeezing the text: rotate to the edge, swap the content, rotate back in.
+        // The content is swapped at 90 degrees, so no text is ever shown mirrored.
+        animation = element.animate([{ transform: "perspective(1100px) rotateY(0deg)" }, { transform: "perspective(1100px) rotateY(90deg)" }], { duration: 140, easing: "ease-in", fill: "forwards" });
         await animation.finished;
         if (cancelled) return;
         replace();
         const closing = animation;
-        animation = element.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], { duration: 160, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" });
+        animation = element.animate([{ transform: "perspective(1100px) rotateY(-90deg)" }, { transform: "perspective(1100px) rotateY(0deg)" }], { duration: 200, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" });
         closing.cancel();
         await animation.finished;
         if (!cancelled) animation.cancel();
@@ -63,7 +65,7 @@ export default function CardFace({ card, flipped, hint, onFlip, onBeforeExamples
   }
 
   return <div ref={face} className={"card-face " + (side ? "back" : "front")} aria-hidden="false">
-    <div className="card-face-header"><span className="eyebrow">{side ? "Antwort" : "Frage"}</span><ExamplesButton question={card.question} examples={card.examples} onBeforeOpen={beforeExamples} /></div>
+    <div className="card-face-header"><span className="eyebrow">{side ? "Antwort" : "Frage"}</span><ExamplesButton card={{ cardId: card.key, question: card.question, answer: card.answer, examples: card.examples }} revealed={side} onBeforeOpen={beforeExamples} /></div>
     <button type="button" className="card-flip" aria-label={(side ? "Antwort: " + card.answer : "Frage: " + card.question) + ". Zum Umdrehen tippen."} onClick={onFlip}>
       <span className="card-copy" data-size={textSize(side ? card.answer : card.question)}>{side ? card.answer : card.question}</span>
       <span className="card-hint">{!side && hint ? "Tippen zum Umdrehen" : ""}</span>

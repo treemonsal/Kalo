@@ -85,12 +85,16 @@ export function week(state: Workspace, now: number) {
 
 export type Level = { subject: string; secure: number; level: number; toNext: number | null; progress: number };
 
+/** Cards of a set that sit in at least one direction. The one rule for tiles, profile, statistics and levels. */
+export function sitting(state: Workspace, deck: Deck) {
+  return deck.cards.filter(card => secure(state, card.id, "front") || secure(state, card.id, "back")).length;
+}
+
 export function levels(state: Workspace): Level[] {
   const subjects = new Map<string, number>();
   for (const deck of state.decks) {
     if (!deck.subject) continue;
-    const sits = deck.cards.filter(card => secure(state, card.id, "front") || secure(state, card.id, "back")).length;
-    subjects.set(deck.subject, (subjects.get(deck.subject) ?? 0) + sits);
+    subjects.set(deck.subject, (subjects.get(deck.subject) ?? 0) + sitting(state, deck));
   }
   return [...subjects].map(([subject, sits]) => {
     const index = LEVELS.findLastIndex(min => sits >= min);

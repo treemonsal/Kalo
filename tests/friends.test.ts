@@ -103,7 +103,7 @@ test("Nur gegenseitige Freunde sehen Profile und Fortschritt, niemals Karten ode
   queries.length = 0;
   const visible = await call("alice");
   assert.equal(visible.friends?.[0].name, "Bobby");
-  assert.equal(visible.friends?.[0].picture, picture);
+  assert.match(visible.friends?.[0].picture ?? "", /^\/api\/workspace\?picture=/, "Freunde bekommen nur die Adresse des Bilds");
   assert.equal(visible.friends?.[0].todayPoints, 0);
   assert.equal(visible.friends?.[0].goal, 20);
   assert.doesNotMatch(JSON.stringify(visible), /Privater Inhalt|Unsichtbar|Geheim/);
@@ -149,6 +149,17 @@ test("Polling aktualisiert Freunde auch wenn nur deren Fortschritt geändert wur
   assert.equal(poll.partner?.name, "Neuer Name");
   const mutation = await call("alice", { type: "profile", name: "Alice" });
   assert.deepEqual(ids(mutation), ["bob"], "auch Antworten auf Bibliotheksänderungen enthalten Freunde");
+});
+
+test("Wischen liest keine Freundeskonten und schickt keine Freunde mit", async () => {
+  const { call, connect, queries } = setup();
+  await connect("alice", "bob");
+  const saved = await call("alice", { type: "save", title: "Set", cards: [{ front: "a", back: "b" }] });
+  const deck = saved.workspace!.decks[0] as { id: string; cards: { id: string }[] };
+  queries.length = 0;
+  const swipe = await call("alice", { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true });
+  assert.equal(swipe.friends, undefined);
+  assert.equal(queries.filter(query => query.startsWith("SELECT")).length, 1, "nur das eigene Konto lesen");
 });
 
 test("Zwei Personen können dieselbe Einladung nicht gleichzeitig beanspruchen", async () => {

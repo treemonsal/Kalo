@@ -37,3 +37,21 @@ test("fremdes HTML und unvollständige Antworten werden sicher als Text behandel
   assert.equal(result.front.meanings[0].definition, "better & stronger — 📖");
   assert.equal(result.front.meanings.length, 1);
 });
+
+test("Artikel werden abgeschnitten, Grammatik-Verweise aussortiert und die passende Bedeutung kommt zuerst", async () => {
+  const replies: Record<string, unknown> = {
+    Rechnung: { de: [{ partOfSpeech: "Noun", language: "German", definitions: [{ definition: "dative plural of Rechnen" }, { definition: "calculation" }, { definition: "bill, invoice", parsedExamples: [{ example: "die Rechnung bezahlen" }] }] }] },
+    invoice: { en: [{ partOfSpeech: "Noun", language: "English", definitions: [{ definition: "A bill; a document asking for payment." }] }] },
+  };
+  const asked: string[] = [];
+  const result = await explainPair("die Rechnung", "invoice", async input => {
+    const term = decodeURIComponent(new URL(String(input)).pathname.split("/").at(-1) ?? "");
+    asked.push(term);
+    return replies[term] ? Response.json(replies[term]) : new Response("missing", { status: 404 });
+  });
+  assert.deepEqual(asked.sort(), ["Rechnung", "invoice"], "ohne Artikel gesucht");
+  assert.equal(result.front.term, "die Rechnung");
+  assert.equal(result.front.meanings[0].definition, "bill, invoice", "passt zur anderen Seite");
+  assert.ok(result.front.meanings.every(meaning => !/plural of/.test(meaning.definition)), "kein Grammatik-Verweis");
+  assert.equal(result.front.meanings.length, 2);
+});

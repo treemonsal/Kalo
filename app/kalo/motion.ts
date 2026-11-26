@@ -31,9 +31,28 @@ export function prefersReducedMotion() {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** A short tick on devices that support it, only for committed decisions. */
+let hapticSwitch: HTMLLabelElement | null = null;
+
+/**
+ * A short tick, only for committed decisions. Android supports vibrate(). Safari on the iPhone does not, but since
+ * iOS 18 toggling a native switch gives a system tick; an invisible switch outside the layout provides it.
+ */
 export function haptic() {
-  if (typeof navigator !== "undefined") navigator.vibrate?.(8);
+  if (typeof navigator === "undefined" || typeof document === "undefined") return;
+  if (typeof navigator.vibrate === "function") { navigator.vibrate(8); return; }
+  if (!/iP(hone|ad|od)/.test(navigator.userAgent) && !(navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent))) return;
+  if (!hapticSwitch) {
+    hapticSwitch = document.createElement("label");
+    hapticSwitch.setAttribute("aria-hidden", "true");
+    hapticSwitch.style.cssText = "position:fixed;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;left:-100px;top:0";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("switch", "");
+    input.tabIndex = -1;
+    hapticSwitch.appendChild(input);
+    document.body.appendChild(hapticSwitch);
+  }
+  hapticSwitch.click();
 }
 
 /** Large text gets smaller type, so long cards stay readable without overflowing. */

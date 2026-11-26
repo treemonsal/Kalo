@@ -271,8 +271,8 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
           cancelAnimationFrame(motion.current.frame); drag.current = null; paint(0); setMode("idle"); return true;
         }} />
       </div>
-      <span className="swipe-stamp known" aria-hidden="true"><Icon kind="check" /> Ich kann das</span>
-      <span className="swipe-stamp again" aria-hidden="true"><Icon kind="repeat" /> Später üben</span>
+      <span className="swipe-stamp known" aria-hidden="true"><Icon kind="check" /> Kann ich</span>
+      <span className="swipe-stamp again" aria-hidden="true"><Icon kind="repeat" /> Noch nicht</span>
     </div>
   </div>;
 }
