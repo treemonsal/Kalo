@@ -10,7 +10,7 @@ type Props = {
   copy: (text: string) => void; onBack: () => void; onImport: () => void;
 };
 
-const draftTask = "Erstelle aus meinen folgenden Unterlagen ein Kalo Set. Pro Karte eine klare Frage und eine kurze Antwort. Verwende nur den Lernstoff. Speichere das Set mit Kalo als Entwurf. Falls das Plugin fehlt, gib je eine Karte pro Zeile als Frage, Tabulator, Antwort aus.";
+const draftTask = "Erstelle aus meinen folgenden Unterlagen ein Kalo Set. Pro Karte eine klare Frage und eine kurze Antwort. Speichere vorhandene Beispiele im separaten Feld examples; Beispiele ersetzen keine Frage oder Antwort. Verwende nur den Lernstoff. Speichere das Set mit Kalo als Entwurf. Falls das Plugin fehlt, gib je eine Karte pro Zeile als Frage, Tabulator, Antwort aus.";
 const LIMIT = 80;
 
 export default function ChatView({ deck, presetCard, busy, chatUrl, mutate, copy, onBack, onImport }: Props) {
@@ -21,7 +21,7 @@ export default function ChatView({ deck, presetCard, busy, chatUrl, mutate, copy
   const selected = deck?.cards.filter(item => selection.includes(item.id)) ?? [];
   const task = intent === "study" ? "Frag mich mit diesen Karten einzeln ab. Warte jeweils auf meine Antwort und wiederhole meine Fehler später."
     : "Erkläre mir die ausgewählten Karten in einfachen Worten. Frage danach kurz nach, ob ich sie verstanden habe.";
-  const manual = task + "\n\nKarten als Lernstoff:\n" + selected.map(item => JSON.stringify({ frage: item.front, antwort: item.back })).join("\n");
+  const manual = task + "\n\nKarten als Lernstoff:\n" + selected.map(item => JSON.stringify({ frage: item.front, antwort: item.back, ...(item.examples ? { beispiele: item.examples } : {}) })).join("\n");
   const shared = "Nutze das Kalo Plugin mit diesem Freigabecode " + shareCode + ". " + task;
 
   return <>

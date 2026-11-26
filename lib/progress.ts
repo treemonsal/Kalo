@@ -63,34 +63,32 @@ export function sharedStreak(a: Workspace, b: Workspace, now: number) {
 
 export function week(state: Workspace, now: number) {
   const today = dayOf(now);
-  const weekday = (new Date(today + "T12:00:00Z").getUTCDay() + 6) % 7;
-  const monday = shift(today, -weekday);
   const goal = goalOf(state);
   const days = Array.from({ length: 7 }, (_, i) => {
-    const key = shift(monday, i);
-    const stats = dayStats(state, key > today ? "" : key);
-    return { key, cards: stats.cards, points: stats.points, reached: stats.points >= goal };
+    const key = shift(today, i - 6);
+    const stats = dayStats(state, key);
+    return { key, points: stats.points, reached: stats.points >= goal };
   });
   const sum = (from: number, field: keyof Day) =>
-    Array.from({ length: 7 }, (_, i) => {
-      const key = shift(monday, from + i);
-      return key <= today ? dayStats(state, key)[field] ?? 0 : 0;
-    }).reduce((a, b) => a + b, 0);
+    Array.from({ length: 7 }, (_, i) => dayStats(state, shift(today, from - i))[field] ?? 0).reduce((a, b) => a + b, 0);
   return {
-    days, cards: sum(0, "cards"), secured: sum(0, "secured"), correct: sum(0, "correct"),
+    days, cards: sum(0, "cards"), secured: sum(0, "secured"), correct: sum(0, "correct"), answered: sum(0, "answered"),
     minutes: Math.round(sum(0, "ms") / 60_000), previousCards: sum(-7, "cards"),
-    graded: sum(0, "graded"), gradedCorrect: sum(0, "gradedCorrect"),
   };
 }
 
 export type Level = { subject: string; secure: number; level: number; toNext: number | null; progress: number };
 
+/** Cards of a set that sit in at least one direction. The one rule for tiles, profile, statistics and levels. */
+export function sitting(state: Workspace, deck: Deck) {
+  return deck.cards.filter(card => secure(state, card.id, "front") || secure(state, card.id, "back")).length;
+}
+
 export function levels(state: Workspace): Level[] {
   const subjects = new Map<string, number>();
   for (const deck of state.decks) {
     if (!deck.subject) continue;
-    const sits = deck.cards.filter(card => secure(state, card.id, "front") || secure(state, card.id, "back")).length;
-    subjects.set(deck.subject, (subjects.get(deck.subject) ?? 0) + sits);
+    subjects.set(deck.subject, (subjects.get(deck.subject) ?? 0) + sitting(state, deck));
   }
   return [...subjects].map(([subject, sits]) => {
     const index = LEVELS.findLastIndex(min => sits >= min);

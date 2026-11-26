@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import type { Appearance } from "../../lib/appearance";
-import type { Design } from "../../lib/design";
 import { workspaceShape, type Workspace } from "../../lib/learning";
 import { goalOf } from "../../lib/progress";
+import type { PartnerSummary } from "../../lib/social";
 import { Icon } from "./icons";
+import { PartnerCard } from "./progress-ui";
 import { SOUND_KEY, play } from "./sound";
 import { useStored, writeStored } from "./storage";
 import type { Mutate } from "./types";
@@ -14,10 +15,10 @@ export const BACKUP_FORMAT = "kalo";
 const LEGACY_FORMAT = "kartenloop";
 
 type Props = {
-  workspace: Workspace; busy: boolean; theme: Appearance; design: Design; chatLink: string;
-  pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string };
-  onBack: () => void;
-  mutate: Mutate; onTheme: (value: Appearance) => void; onDesign: (value: Design) => void; onChatLink: (value: string) => boolean;
+  workspace: Workspace; busy: boolean; theme: Appearance; chatLink: string;
+  pushKey?: string | null; push?: { enabled: boolean; morning: string; evening: string }; partner?: PartnerSummary | null;
+  onInvite: () => void; onLeave: () => void; onBack: () => void; backLabel: string;
+  mutate: Mutate; onTheme: (value: Appearance) => void; onChatLink: (value: string) => boolean;
   onError: (message: string) => void; onNotice: (message: string) => void;
 };
 
@@ -25,7 +26,7 @@ const GOALS = [10, 20, 30, 50];
 const TIMES = ["06:15", "06:45", "07:15", "12:00", "16:30", "18:00", "19:30", "20:30", "21:30"];
 const bytes = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4)), c => c.charCodeAt(0));
 
-export default function SettingsView({ workspace, busy, theme, design, chatLink, mutate, onTheme, onDesign, onChatLink, onError, onNotice, pushKey, push, onBack }: Props) {
+export default function SettingsView({ workspace, busy, theme, chatLink, mutate, onTheme, onChatLink, onError, onNotice, pushKey, push, partner, onInvite, onLeave, onBack, backLabel }: Props) {
   const sound = useStored(SOUND_KEY) !== "off";
   const morning = push?.morning ?? "06:45";
   const evening = push?.evening ?? "19:30";
@@ -61,15 +62,9 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
   }
 
   return <>
-    <div className="view-bar"><button className="icon-button" aria-label="Zurück zum Profil" onClick={onBack}><Icon kind="back" /></button></div>
+    <div className="view-bar"><button className="text-button" onClick={onBack}><Icon kind="back" /> {backLabel}</button></div>
     <header className="page-head"><h1>Einstellungen</h1></header>
     <section className="panel flow"><h2>Darstellung</h2>
-      <div className="setting"><span className="setting-label" id="design">Design</span>
-        <div className="appearance" role="radiogroup" aria-labelledby="design" aria-describedby="design-note">
-          {([["current", "Neu"], ["classic", "Bisherig"]] as const).map(([value, label]) =>
-            <label key={value}><input type="radio" name="design" value={value} checked={design === value} onChange={() => onDesign(value)} /><span>{label}</span></label>)}
-        </div></div>
-      <p className="muted" id="design-note">Neu: Graphit. Bisherig: Indigo und die vertraute Schrift. Jederzeit wechselbar.</p>
       <div className="setting"><span className="setting-label" id="scheme">Farbschema</span>
         <div className="appearance" role="radiogroup" aria-labelledby="scheme">
           {([["dark", "Dunkel"], ["light", "Hell"], ["system", "System"]] as const).map(([value, label]) =>
@@ -77,11 +72,10 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
         </div></div>
     </section>
     <section className="panel flow"><h2>Tagesziel</h2>
-      <div className="setting"><span className="setting-label" id="goal">Punkte pro Tag</span>
+      <div className="setting"><span className="setting-label" id="goal">Karten pro Tag</span>
         <div className="appearance" role="radiogroup" aria-labelledby="goal">
           {GOALS.map(value => <label key={value}><input type="radio" name="goal" checked={goalOf(workspace) === value} onChange={() => void mutate({ type: "setGoal", goal: value })} /><span>{value}</span></label>)}
         </div></div>
-      <p>Jede Bewertung zählt einen Punkt. Richtige Goldkarten zählen zwei.</p>
       <p className="muted">Goldkarten zählen doppelt. Ein verpasster Tag pro Woche gilt als Ruhetag.</p>
       <label className="check"><input type="checkbox" checked={sound} onChange={event => { writeStored(SOUND_KEY, event.target.checked ? "on" : "off"); if (event.target.checked) play("correct"); }} /> Töne beim Lernen</label>
     </section>
@@ -98,6 +92,11 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
         </div>
       </>
     </section>}
+    <section className="panel flow"><h2>Lernpartner</h2>
+      {partner ? <><PartnerCard partner={partner} /><div className="actions"><button className="button" onClick={onLeave}>Partnerschaft beenden</button></div></>
+        : <><p>Erreicht ihr beide euer Tagesziel, wächst eure gemeinsame Serie.</p>
+          <div className="actions"><button className="button primary" onClick={onInvite}><Icon kind="people" /> Partner einladen</button></div></>}
+    </section>
     <section className="panel"><details className="advanced"><summary>Erweitert</summary><div className="flow">
     <section className="flow"><h3>Datensicherung</h3><p>Die JSON Datei enthält deine Kartensets und deinen Lernstand.</p>
       <div className="actions"><button className="button primary" onClick={backup}>Sicherung herunterladen</button><label className="button file-button">Sicherung wiederherstellen<input type="file" accept=".json,application/json" disabled={busy} onChange={async event => {

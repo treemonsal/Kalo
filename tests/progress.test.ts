@@ -72,39 +72,7 @@ test("Tagesziel, Woche und Serie aus echten Aktionen", () => {
   assert.equal(streak(s, now).days, 2);
   const summary = week(s, now);
   assert.equal(summary.cards, 11);
-  assert.deepEqual(summary.days.slice(1, 3).map(item => item.reached), [true, true]);
-});
-
-test("Diese Woche ist Montag bis Sonntag in Zürich, Karten und Punkte bleiben getrennt", () => {
-  const s = empty();
-  s.stats = { days: Object.fromEntries(Array.from({ length: 14 }, (_, i) => [day(i - 9), { cards: 2, points: 3, correct: 1, secured: 0, ms: 60_000 }])) };
-  const summary = week(s, now);
-  assert.deepEqual(summary.days.map(item => item.key), Array.from({ length: 7 }, (_, i) => day(i - 2)));
-  assert.equal(summary.cards, 6, "nur Montag bis heute, keine Daten aus der Zukunft");
-  assert.equal(summary.days[2].cards, 2);
-  assert.equal(summary.days[2].points, 3);
-  assert.equal(summary.previousCards, 14);
-  const sunday = week(s, Date.parse("2026-11-01T23:30:00Z")); // Montag in Zürich
-  assert.equal(sunday.days[0].key, "2026-11-02");
-});
-
-test("Trefferquote zählt beantwortete Fragen, nicht das Durchblättern oder Wischen", () => {
-  let s = deck(empty(), "A", 3);
-  const d = s.decks[0];
-  s = apply(s, { type: "sortCard", deckId: d.id, cardId: d.cards[0].id, direction: "front", known: true }, now);
-  s = apply(s, { type: "start", deckId: d.id, mode: "cram", direction: "front", filter: "all" }, now);
-  for (const answer of ["Antwort 0", "falsch"]) s = apply(s, { type: "answer", sessionId: s.session!.id, cursor: s.session!.cursor, round: 1, answer }, now);
-  assert.equal(week(s, now).graded, 2);
-  assert.equal(week(s, now).gradedCorrect, 1);
-});
-
-test("Später übertragene Bewertungen setzen den Zeitanker nicht zurück und verdoppeln keine Lernzeit", () => {
-  let s = deck(empty(), "A", 2); const d = s.decks[0];
-  const rate = (index: number, offset: number) => { s = apply(s, { type: "sortCard", deckId: d.id, cardId: d.cards[index].id, direction: "front", known: true }, now + offset); };
-  rate(0, 0); rate(0, 59_000); rate(0, 60_000);
-  rate(1, 1000); // ein altes Ereignis von einem anderen Gerät
-  rate(0, 61_000);
-  assert.equal(s.stats!.days[day(0)].ms, 61_000);
+  assert.deepEqual(summary.days.slice(-2).map(item => item.reached), [true, true]);
 });
 
 test("Stufen pro Fach und Prüfungs-Countdown", () => {
@@ -143,4 +111,20 @@ test("Zuletzt zeigt die zuletzt geübten Sets, danach die neusten", () => {
   s = apply(s, { type: "sortCard", deckId: a.id, cardId: a.cards[0].id, direction: "front", known: true }, now);
   s = apply(s, { type: "sortCard", deckId: b.id, cardId: b.cards[0].id, direction: "front", known: true }, now + 1000);
   assert.deepEqual(recentDecks(s).map(item => item.title), ["B", "A", "D"]);
+});
+
+test("Richtig-Quote zählt nur echte Antworten, Wischen bleibt draussen", () => {
+  let s = deck(empty(), "Quote", 6);
+  const d = s.decks[0];
+  for (const card of d.cards.slice(0, 3)) s = apply(s, { type: "sortCard", deckId: d.id, cardId: card.id, direction: "front", known: true }, now);
+  s = apply(s, { type: "start", deckId: d.id, mode: "cram", direction: "front", filter: "all" }, now);
+  for (let i = 0; i < 2; i += 1) {
+    const session = s.session!;
+    const card = d.cards.find(item => item.id === session.queue[session.cursor])!;
+    s = apply(s, { type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: i === 0 ? card.back : "falsch" }, now);
+  }
+  const summary = week(s, now);
+  assert.equal(summary.cards, 5, "Wischen zählt fürs Tagesziel");
+  assert.equal(summary.answered, 2);
+  assert.equal(summary.correct, 1);
 });

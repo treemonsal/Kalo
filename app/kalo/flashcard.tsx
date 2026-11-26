@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type PointerEvent, type Ref } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, type MouseEvent, type PointerEvent, type Ref } from "react";
 import { dragOffset, swipeIntent, swipeStep } from "../../lib/swipe";
 import { Icon } from "./icons";
+import CardFace from "./card-face";
 import { haptic, prefersReducedMotion, springs, stepSpring, textSize, toss, type Spring } from "./motion";
 
 type Sample = { x: number; time: number };
 type Drag = { id: number; x: number; y: number; offset: number; width: number; intent: "pending" | "horizontal" | "vertical"; samples: Sample[] };
 type Mode = "idle" | "drag" | "settle" | "toss";
 export type FlashcardHandle = { fling: (known: boolean) => void };
-export type CardContent = { key: string; question: string; answer: string };
+export type CardContent = { key: string; question: string; answer: string; examples?: string };
 
 type Props = {
   ref?: Ref<FlashcardHandle>;
@@ -33,7 +34,7 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
  */
 export default function Flashcard({ ref, card, next, flipped, entry, hint, onFlip, onSwipe }: Props) {
   const stage = useRef<HTMLDivElement>(null);
-  const surface = useRef<HTMLButtonElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const motion = useRef({ x: 0, velocity: 0, frame: 0, mode: "idle" as Mode, swapping: false, fallback: 0, queued: [] as boolean[] });
   const suppressClick = useRef(false);
@@ -52,13 +53,15 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
         copy.dataset.overflow = String(copy.scrollHeight > copy.clientHeight + 2);
       });
       // Touch actions intersect with ancestors: allow native reading on a long visible face.
-      const copy = surface.current?.querySelector<HTMLElement>(flipped ? ".back .card-copy" : ".front .card-copy");
+      const copy = surface.current?.querySelector<HTMLElement>(".card-copy");
       if (surface.current) surface.current.dataset.scrollable = copy?.dataset.overflow ?? "false";
     };
     mark();
     const observer = new ResizeObserver(mark);
     observer.observe(element);
-    return () => observer.disconnect();
+    const content = new MutationObserver(mark);
+    content.observe(element, { subtree: true, childList: true, characterData: true });
+    return () => { observer.disconnect(); content.disconnect(); };
   }, [card.key, card.question, card.answer, next?.key, flipped]);
 
   function width() {
@@ -176,7 +179,7 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card.key]);
 
-  function pointerDown(event: PointerEvent<HTMLButtonElement>) {
+  function pointerDown(event: PointerEvent<HTMLDivElement>) {
     const state = motion.current;
     if (state.swapping || !event.isPrimary || event.button !== 0) return;
     // Catching a card mid-flight takes it back into the hand.
@@ -187,10 +190,11 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
       id: event.pointerId, x: event.clientX, y: event.clientY, offset: state.x, width: event.currentTarget.offsetWidth || width(),
       intent: Math.abs(state.x) > 6 ? "horizontal" : "pending", samples: [{ x: event.clientX, time: event.timeStamp }],
     };
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Window release handlers also finish the gesture. */ }
+    const target = event.target instanceof HTMLElement ? event.target.closest("button") ?? event.currentTarget : event.currentTarget;
+    try { target.setPointerCapture(event.pointerId); } catch { /* Window release handlers also finish the gesture. */ }
   }
 
-  function pointerMove(event: PointerEvent<HTMLButtonElement>) {
+  function pointerMove(event: PointerEvent<HTMLDivElement>) {
     const current = drag.current;
     if (!current || current.id !== event.pointerId) return;
     const dx = event.clientX - current.x;
@@ -241,31 +245,34 @@ export default function Flashcard({ ref, card, next, flipped, entry, hint, onFli
     };
   });
 
+  function flip(event: MouseEvent<HTMLButtonElement>) {
+    const state = motion.current;
+    if (state.swapping || state.mode === "toss" || (event.detail && suppressClick.current)) { suppressClick.current = false; return; }
+    onFlip();
+  }
+
   return <div className="card-stage" ref={stage} data-mode="idle">
     {next && <div className="card-under" aria-hidden="true">
       <span className="card-face"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(next.question)}>{next.question}</span></span>
     </div>}
-    <button
+    <div
       ref={surface}
       className="flashcard"
-      aria-label={(flipped ? "Antwort: " + card.answer : "Frage: " + card.question) + ". Zum Umdrehen tippen."}
+      role="group" aria-label="Karteikarte"
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={event => release(event)}
       onPointerCancel={event => release(event, true)}
       onLostPointerCapture={event => release(event, true)}
-      onClick={event => {
-        const state = motion.current;
-        if (state.swapping || state.mode === "toss" || (event.detail && suppressClick.current)) { suppressClick.current = false; return; }
-        onFlip();
-      }}
     >
-      <span className="card-faces" key={card.key} data-flipped={flipped} aria-hidden="true">
-        <span className="card-face front"><span className="eyebrow">Frage</span><span className="card-copy" data-size={textSize(card.question)}>{card.question}</span><span className="card-hint">{hint ? "Tippen zum Umdrehen" : ""}</span></span>
-        <span className="card-face back"><span className="eyebrow">Antwort</span><span className="card-copy" data-size={textSize(card.answer)}>{card.answer}</span><span className="card-hint" /></span>
-      </span>
+      <div className="card-faces" key={card.key} data-flipped={flipped}>
+        <CardFace key={card.key} card={card} flipped={flipped} hint={hint} onFlip={flip} onBeforeExamples={() => {
+          if (motion.current.mode === "toss" || motion.current.swapping) return false;
+          cancelAnimationFrame(motion.current.frame); drag.current = null; paint(0); setMode("idle"); return true;
+        }} />
+      </div>
       <span className="swipe-stamp known" aria-hidden="true"><Icon kind="check" /> Ich kann das</span>
       <span className="swipe-stamp again" aria-hidden="true"><Icon kind="repeat" /> Später üben</span>
-    </button>
+    </div>
   </div>;
 }

@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { deckDigest, question, type Workspace } from "../lib/learning.ts";
-import { WorkspaceProjection, type QueuedAction } from "../lib/learning-sync.ts";
-import { AccountStore, api, explainApi, mcp } from "../lib/service.ts";
-import type { PairExplanation } from "../lib/explanations.ts";
+import { type Workspace } from "../lib/learning.ts";
+import { AccountStore, api, mcp } from "../lib/service.ts";
 import { reminderFor, runReminders, vapidAuthorization } from "../lib/push.ts";
 
 function setup() {
@@ -29,53 +27,6 @@ function setup() {
   return { store, request, now };
 }
 const save = { type: "save", title: "Privat", cards: [{ front: "Geheim", back: "Antwort" }] };
-
-test("Schnell vorgelernte Antworten bleiben nach Hintergrundabgleich samt neuer Rundenreihenfolge identisch", async () => {
-  const { store, request, now } = setup();
-  const saved = await data<ApiReply>(api(request("alice", { action: { ...save, cards: Array.from({ length: 4 }, (_, i) => ({ front: "Frage " + i, back: "Antwort " + i })) } }), store, now));
-  const started = await data<ApiReply>(api(request("alice", { action: { type: "start", deckId: saved.workspace.decks[0].id, direction: "front", filter: "all", mode: "learn" } }), store, now));
-  const projection = new WorkspaceProjection(); const items: QueuedAction[] = []; const clientId = crypto.randomUUID();
-  let local = started.workspace;
-  for (let i = 0; i < 10; i++) {
-    const session = local.session!;
-    items.push({ id: crypto.randomUUID(), clientId, sequence: i + 1, at: now + i * 1000,
-      action: { type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: question(local)!.answer } });
-    local = projection.project(started.workspace, items);
-  }
-  for (const item of items) {
-    const response = await api(request("alice", { ...item, requestId: item.id }), store, now + 20_000);
-    assert.equal(response.status, 200);
-    const reply = await data<ApiReply & { confirmed: Record<string, number> }>(response);
-    assert.equal(reply.confirmed[clientId], item.sequence);
-    assert.deepEqual(new WorkspaceProjection().project(reply.workspace, items, reply.confirmed), local);
-  }
-  assert.deepEqual((await store.read("alice")).workspace, local);
-  const last = items.at(-1)!;
-  assert.equal((await api(request("alice", { ...last, requestId: last.id }), store, now + 30_000)).status, 200);
-  assert.deepEqual((await store.read("alice")).workspace, local, "erneute Zustellung verändert den Fortschritt nicht");
-});
-
-test("Worterklärungen laden ausschliesslich die aktuelle eigene Karte", async () => {
-  const { store, request, now } = setup();
-  await api(request("alice", { action: { ...save, cards: [{ front: "improve", back: "verbessern" }, { front: "private", back: "privat" }] } }), store, now);
-  const account = await store.read("alice"); const deck = account.workspace.decks[0];
-  const input = { deckId: deck.id, cardId: deck.cards[0].id };
-  const lookup = async (url: string) => {
-    const word = new URL(url).pathname.split("/").at(-1);
-    assert.ok(word === "improve" || word === "verbessern", "No other card may leave the app");
-    return Response.json({ en: [{ definitions: [{ definition: "To make something better." }] }] });
-  };
-  assert.equal((await explainApi(request(null, input), store, lookup)).status, 401);
-  assert.equal((await explainApi(request("bob", input), store, lookup)).status, 404);
-  const foreign = request("alice", input); foreign.headers.set("sec-fetch-site", "same-site");
-  assert.equal((await explainApi(foreign, store, lookup)).status, 403);
-  const result = await explainApi(request("alice", input), store, lookup);
-  assert.equal(result.status, 200);
-  const resultBody = await result.json() as PairExplanation;
-  assert.equal(resultBody.front.meanings[0].definition, "To make something better.");
-  assert.equal(resultBody.back.term, "verbessern");
-  assert.deepEqual(await store.read("alice"), account);
-});
 const tool = (name: string, args: unknown) => ({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
 
 type ApiReply = { workspace: Workspace; revision: number; drafts: { id: string }[]; token?: string };
@@ -253,7 +204,7 @@ test("Push: VAPID-Signatur ist gültig, Erinnerung kommt einmal am Morgen", asyn
   assert.match(text.title, /fällig/);
 });
 
-test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werden abgelehnt", async () => {
+test("Profil: eigener Name und Bild, das Bild reist nicht mit jeder Aktion, der Partner sieht beides", async () => {
   const { store, request, now } = setup();
   type Profiled = Social & { profile: { name: string; picture: string | null; custom: boolean }; partner?: { name: string; picture?: string } | null };
   const call = async (owner: string, action: unknown) => data<Profiled>(api(request(owner, { action }), store, now));
@@ -261,57 +212,29 @@ test("Profil: eigener Name und Bild, der Partner sieht beides, fremde Daten werd
   const start = await data<Profiled>(api(request("alice"), store, now));
   assert.deepEqual(start.profile, { name: "alice", picture: null, custom: false }, "ohne eigenen Namen der Anmeldename");
   const named = await call("alice", { type: "profile", name: " Alice ", picture });
-  assert.deepEqual(named.profile, { name: "Alice", picture, custom: true });
+  assert.equal(named.profile.name, "Alice");
+  assert.equal(named.profile.custom, true);
+  assert.match(named.profile.picture ?? "", /^\/api\/workspace\?picture=[0-9a-f-]{36}$/, "nur eine Adresse, nicht das Bild");
+  assert.ok(!JSON.stringify(await call("alice", save)).includes("base64"), "eine normale Aktion schickt kein Bild mit");
+  // The picture loads from its own address, also without sign-in headers (images do not send them).
+  const image = await api(request(null, undefined, named.profile.picture!), store, now);
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("content-type"), "image/jpeg");
+  assert.deepEqual([...new Uint8Array(await image.arrayBuffer())].slice(0, 3), [0xff, 0xd8, 0xff]);
+  assert.equal((await api(request(null, undefined, "/api/workspace?picture=" + crypto.randomUUID()), store, now)).status, 404);
   assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:text/html;base64,PHNjcmlwdD4=" } }), store, now)).status, 400, "nur JPEG");
   assert.equal((await api(request("alice", { action: { type: "profile", picture: "data:image/jpeg;base64," + "A".repeat(130_000) } }), store, now)).status, 400, "zu gross");
+  // A new picture replaces the old one, the old address is gone.
+  const replaced = await call("alice", { type: "profile", picture });
+  assert.notEqual(replaced.profile.picture, named.profile.picture);
+  assert.equal((await api(request(null, undefined, named.profile.picture!), store, now)).status, 404, "altes Bild aufgeräumt");
   const { token } = await call("alice", { type: "invitePartner" });
   const bob = await call("bob", { type: "acceptPartner", token });
-  assert.equal(bob.partner?.name, "Alice", "die Einladung trägt den eigenen Namen");
-  assert.equal(bob.partner?.picture, picture);
+  assert.equal(bob.partner?.name, "Alice", "der Partner sieht den eigenen Namen");
+  assert.equal(bob.partner?.picture, replaced.profile.picture);
   await call("alice", { type: "profile", name: "", picture: null });
   const after = await data<Profiled>(api(request("bob"), store, now));
   assert.equal(after.partner?.picture, undefined, "entferntes Bild ist weg");
-  assert.equal((await data<Profiled>(api(request("alice"), store, now))).profile.name, "alice", "leerer Name nimmt wieder den Anmeldenamen");
-});
-
-test("Erneute Zustellung nach verlorener Antwort zählt eine Wischbewertung genau einmal", async () => {
-  const { store, request, now } = setup();
-  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
-  const deck = saved.workspace.decks[0];
-  const payload = { requestId: crypto.randomUUID(), clientId: crypto.randomUUID(), sequence: 1, at: now, action: { type: "sortCard", deckId: deck.id, cardId: deck.cards[0].id, direction: "front", known: true, sortId: crypto.randomUUID() } };
-  const first = await data<ApiReply>(api(request("alice", payload), store, now));
-  const again = await data<ApiReply>(api(request("alice", payload), store, now + 60_000));
-  assert.equal(again.revision, first.revision);
-  assert.deepEqual(again.workspace.reviews, first.workspace.reviews);
-  assert.deepEqual(again.workspace.stats, first.workspace.stats);
-  const bob = await api(request("bob", payload), store, now);
-  assert.notEqual(bob.status, 200, "eine fremde Identität hat auch mit gleicher Anfrage ID keinen Zugriff");
-});
-
-test("Eine alte lokale Bewertung darf keine inzwischen bearbeitete Karte als gelernt markieren", async () => {
-  const { store, request, now } = setup();
-  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
-  const deck = saved.workspace.decks[0]; const card = deck.cards[0];
-  const content = deckDigest({ title: "", cards: [card] });
-  await api(request("alice", { action: { ...save, deckId: deck.id, cards: [{ ...card, back: "Neue Antwort" }] } }), store, now + 1000);
-  const response = await api(request("alice", { requestId: crypto.randomUUID(), clientId: crypto.randomUUID(), sequence: 1, at: now, content,
-    action: { type: "sortCard", deckId: deck.id, cardId: card.id, direction: "front", known: true, sortId: crypto.randomUUID() } }), store, now + 2000);
-  assert.equal(response.status, 409);
-  assert.deepEqual((await store.read("alice")).workspace.reviews, {});
-});
-
-test("Auch nach tausenden weiteren Änderungen wird eine alte Anfrage nicht noch einmal angewendet", async () => {
-  const { store, request, now } = setup();
-  const saved = await data<ApiReply>(api(request("alice", { action: save }), store, now));
-  const deck = saved.workspace.decks[0];
-  const clientId = crypto.randomUUID();
-  const action = { type: "star", deckId: deck.id, cardId: deck.cards[0].id, starred: true };
-  const original = { requestId: crypto.randomUUID(), clientId, sequence: 1, action };
-  await api(request("alice", original), store, now);
-  for (let sequence = 2; sequence <= 2050; sequence++) await api(request("alice", { requestId: crypto.randomUUID(), clientId, sequence, action: { ...action, starred: false } }), store, now);
-  const before = await store.read("alice");
-  assert.equal((await api(request("alice", original), store, now)).status, 200);
-  const after = await store.read("alice");
-  assert.equal(after.workspace.decks[0].cards[0].starred, false);
-  assert.equal(after.revision, before.revision);
+  assert.equal(after.partner?.name, "alice", "ohne eigenen Namen wieder der Anmeldename, nicht der alte");
+  assert.equal((await api(request(null, undefined, replaced.profile.picture!), store, now)).status, 404);
 });

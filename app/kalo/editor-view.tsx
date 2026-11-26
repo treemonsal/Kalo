@@ -50,6 +50,9 @@ export default function EditorView({ editor, busy, subjects, onChange, onSave, o
         </div></div>
         <div className="two"><label>Vorderseite<textarea rows={2} maxLength={1500} value={item.front} onChange={event => update(item.row, { front: event.target.value })} /></label>
           <label>Rückseite<textarea rows={2} maxLength={1500} value={item.back} onChange={event => update(item.row, { back: event.target.value })} /></label></div>
+        <label className="card-examples-field">Beispiele (optional)<textarea rows={3} maxLength={6000} value={item.examples ?? ""}
+          placeholder="Beispiele zu dieser Karte. Sie erscheinen separat über den Beispiele-Button."
+          onChange={event => update(item.row, { examples: event.target.value })} /></label>
         <details><summary>Antwortvarianten</summary><div className="two">
           <label>Vorderseite, je eine pro Zeile<textarea rows={2} defaultValue={item.frontAliases?.join("\n")} onChange={event => update(item.row, { frontAliases: lines(event.target.value) })} /></label>
           <label>Rückseite, je eine pro Zeile<textarea rows={2} defaultValue={item.backAliases?.join("\n")} onChange={event => update(item.row, { backAliases: lines(event.target.value) })} /></label>

@@ -1,26 +1,21 @@
 import { z } from "zod";
-import { ConflictError, actionShape, apply, deckDigest, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
+import { ConflictError, actionShape, apply, deckInput, empty, type Card, type CardInput, type Workspace } from "./learning.ts";
 import type { PushSettings } from "./push.ts";
-import { friendSummaries, notice, publicDuel, runSocial, socialShape, type Duel, type FriendRef, type Share } from "./social.ts";
-import { isDurableAction, actionShuffle } from "./learning-sync.ts";
-import { explainPair } from "./explanations.ts";
+import { PICTURE_MAX, PICTURE_PREFIX, pictureBytes, pictureKey, pictureUrl, type StoredPicture } from "./picture.ts";
+import { notice, partnerSummary, publicDuel, runSocial, socialShape, type Duel, type Share } from "./social.ts";
 
 type Draft = { id: string; title: string; cards: CardInput[]; created: number };
 type Selection = { token: string; deckId: string; title: string; cards: Card[]; expires: number };
 export type Account = {
   revision: number; workspace: Workspace; drafts: Draft[]; selections: Selection[];
   partner?: { id: string; name: string }; published?: Record<string, string>; push?: PushSettings;
-  friends?: FriendRef[];
   /** Own name and picture. Without a name, the sign-in name is used. */
   profile?: Profile;
-  syncClients?: Record<string, number>;
 };
+/** `picture` is the token of the picture row, see lib/picture.ts. */
 export type Profile = { name?: string; picture?: string };
-export type SocialAccount = Pick<Account, "friends" | "partner" | "profile" | "workspace">;
 
-/** Own profile pictures: a small square JPEG as a data URL, made in the browser. */
-export const PICTURE_PREFIX = "data:image/jpeg;base64,";
-export const PICTURE_MAX = 120_000;
+/** Own profile pictures arrive as a small square JPEG data URL, made in the browser. */
 const pictureShape = z.string().max(PICTURE_MAX).refine(value => value.startsWith(PICTURE_PREFIX) && /^[A-Za-z0-9+/]+=*$/.test(value.slice(PICTURE_PREFIX.length)), "Ungültiges Bild.");
 
 export class AccountStore {
@@ -41,36 +36,6 @@ export class AccountStore {
     const record = await this.db.prepare("SELECT revision FROM accounts WHERE owner = ?")
       .bind(owner).first<{ revision: number }>();
     return record?.revision ?? 0;
-  }
-
-  /** Only the profile, friendship references and aggregate progress. Never load a friend's cards. */
-  async readSocial(owner: string): Promise<SocialAccount> {
-    const record = await this.db.prepare(`SELECT json_object(
-      'friends', json_extract(payload, '$.friends'), 'partner', json_extract(payload, '$.partner'),
-      'profile', json_extract(payload, '$.profile'), 'goal', json_extract(payload, '$.workspace.goal'),
-      'stats', json_extract(payload, '$.workspace.stats')) AS payload FROM accounts WHERE owner = ?`)
-      .bind(owner).first<{ payload: string }>();
-    if (!record) return { workspace: empty() };
-    const { goal, stats, ...social } = JSON.parse(record.payload);
-    return { ...social, workspace: { ...empty(), ...(goal == null ? {} : { goal }), ...(stats == null ? {} : { stats }) } };
-  }
-
-  /** One SQL statement commits both sides and the invite together, only if every revision still matches.
-   * New account rows are initialized separately before this method; those empty rows carry no friendship.
-   * The materialized CTE fixes the revision check before any row is updated (SQLite/D1).
-   */
-  async writeSocial(accounts: { owner: string; account: Account }[], invite?: { key: string; revision: number; data: unknown }) {
-    const rows = accounts.map(({ owner, account: { revision, ...data } }) => ({ owner, revision, payload: JSON.stringify(data) }));
-    if (invite) rows.push({ owner: invite.key, revision: invite.revision, payload: JSON.stringify(invite.data) });
-    if (rows.some(row => new TextEncoder().encode(row.payload).length > 1_450_000)) throw new InputError("Deine Bibliothek ist zu gross. Sichere deine Sets und entferne ungenutzte Karten.");
-    const checks = rows.map(() => "(owner = ? AND revision = ?)").join(" OR ");
-    const cases = rows.map(() => "WHEN ? THEN ?").join(" ");
-    const ids = rows.map(() => "?").join(", ");
-    const operation = this.db.prepare(`WITH ready AS MATERIALIZED (SELECT COUNT(*) AS total FROM accounts WHERE ${checks})
-      UPDATE accounts SET payload = CASE owner ${cases} END, revision = revision + 1
-      WHERE owner IN (${ids}) AND (SELECT total FROM ready) = ?`)
-      .bind(...rows.flatMap(row => [row.owner, row.revision]), ...rows.flatMap(row => [row.owner, row.payload]), ...rows.map(row => row.owner), rows.length);
-    return (await operation.run()).meta.changes === rows.length;
   }
 
   /** Rows for shared things ("share:…", "duel:…"), stored as JSON in the same table. */
@@ -123,9 +88,6 @@ const profile = z.object({ type: z.literal("profile"), name: z.string().trim().m
 // Actions are commands, so the server applies them to the newest state. The revision is only informational.
 const mutation = z.object({
   revision: z.number().int().nonnegative().optional(), action: z.union([actionShape, share, discard, revoke, profile]),
-  requestId: key.optional(), at: z.number().finite().nonnegative().optional(),
-  clientId: key.optional(), sequence: z.number().int().positive().safe().optional(),
-  content: z.string().max(20).optional(),
 });
 const WRITE_ATTEMPTS = 3;
 class InputError extends Error {}
@@ -133,8 +95,7 @@ function json(body: unknown, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 function ownerOf(req: Request) {
-  const owner = req.headers.get("oai-authenticated-user-id")?.trim();
-  return owner && !owner.includes(":") ? owner : undefined;
+  return req.headers.get("oai-authenticated-user-id")?.trim();
 }
 function nameOf(req: Request) {
   const full = req.headers.get("oai-authenticated-user-full-name");
@@ -149,19 +110,10 @@ function displayName(account: Account, req: Request) {
 }
 function visible(account: Account, req: Request) {
   return {
-    profile: { name: displayName(account, req), picture: account.profile?.picture ?? null, custom: Boolean(account.profile?.name) },
-    workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {}, confirmed: account.syncClients ?? {},
+    profile: { name: displayName(account, req), picture: pictureUrl(account.profile?.picture), custom: Boolean(account.profile?.name) },
+    workspace: account.workspace, drafts: account.drafts, revision: account.revision, published: account.published ?? {},
     push: { enabled: Boolean(account.push?.subs.length), morning: account.push?.morning ?? "06:45", evening: account.push?.evening ?? "19:30" },
   };
-}
-async function socialVisible(store: AccountStore, account: SocialAccount, owner: string, now: number) {
-  const friends = await friendSummaries(store, account, owner, now);
-  const first = friends[0];
-  const partner = first ? { name: first.name, picture: first.picture, streak: first.streak, shared: first.shared, todayDone: first.todayDone, todayPoints: first.todayPoints, goal: first.goal } : null;
-  return { friends, partner };
-}
-async function currentVisible(store: AccountStore, account: Account, req: Request, owner: string, now: number) {
-  return { ...visible(account, req), ...await socialVisible(store, account, owner, now) };
 }
 async function body(req: Request): Promise<unknown> {
   if (!req.headers.get("content-type")?.toLowerCase().startsWith("application/json")) throw new InputError("JSON erwartet.");
@@ -201,7 +153,8 @@ class Rejection extends Error {
   }
 }
 
-function change(account: Account, action: Mutation, now: number, identity?: string) {
+/** `picture` is the token of a picture row stored just before, for a profile action that sets a new picture. */
+function change(account: Account, action: Mutation, now: number, picture?: string) {
   account.selections = account.selections.filter(item => item.expires > now);
   if (action.type === "share") {
     const deck = account.workspace.decks.find(item => item.id === action.deckId);
@@ -216,7 +169,7 @@ function change(account: Account, action: Mutation, now: number, identity?: stri
   if (action.type === "profile") {
     const next: Profile = { ...account.profile };
     if (action.name !== undefined) { if (action.name) next.name = action.name; else delete next.name; }
-    if (action.picture !== undefined) { if (action.picture) next.picture = action.picture; else delete next.picture; }
+    if (action.picture !== undefined) { if (picture) next.picture = picture; else delete next.picture; }
     account.profile = next;
   } else if (action.type === "revoke") {
     account.selections = account.selections.filter(item => item.token !== action.token);
@@ -226,7 +179,7 @@ function change(account: Account, action: Mutation, now: number, identity?: stri
     if (action.type === "save" && action.draftId && !account.drafts.some(d => d.id === action.draftId)) {
       throw new Rejection("Dieser Entwurf wurde bereits übernommen oder entfernt.", 409);
     }
-    try { account.workspace = apply(account.workspace, action, now, identity ? actionShuffle(identity) : undefined); }
+    try { account.workspace = apply(account.workspace, action, now); }
     catch (error) {
       if (error instanceof ConflictError) throw new Rejection(error.message, 409);
       throw new Rejection(error instanceof Error ? error.message : "Aktion fehlgeschlagen.", 400);
@@ -238,23 +191,14 @@ function change(account: Account, action: Mutation, now: number, identity?: stri
   return undefined;
 }
 
-/** A read initiated from the current card. Provider URLs and card content are selected on the server. */
-export async function explainApi(req: Request, store: AccountStore, lookup: (url: string, init?: RequestInit) => Promise<Response> = fetch) {
-  const owner = ownerOf(req);
-  if (!owner) return json({ error: "Melde dich mit ChatGPT an." }, 401);
-  if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
-  if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);
-  try {
-    const input = z.object({ deckId: key, cardId: key }).safeParse(await body(req));
-    if (!input.success) return json({ error: "Ungültige Karte." }, 400);
-    const account = await store.read(owner);
-    const card = account.workspace.decks.find(d => d.id === input.data.deckId)?.cards.find(c => c.id === input.data.cardId);
-    if (!card) return json({ error: "Diese Karte wurde nicht gefunden." }, 404);
-    return json(await explainPair(card.front, card.back, lookup));
-  } catch { return json({ error: "Die Erklärung konnte nicht geladen werden." }, 400); }
-}
-
 export async function api(req: Request, store: AccountStore, now = Date.now(), options: { pushKey?: string } = {}) {
+  // Images load without the app's sign-in headers. The token is random and changes with every new picture.
+  const pictureToken = req.method === "GET" ? new URL(req.url).searchParams.get("picture") : null;
+  if (pictureToken !== null) {
+    const picture = key.safeParse(pictureToken).success ? await store.getRecord<StoredPicture>(pictureKey(pictureToken)) : null;
+    if (!picture) return json({ error: "Bild nicht gefunden." }, 404);
+    return new Response(pictureBytes(picture.data), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" } });
+  }
   const owner = ownerOf(req);
   if (!owner) return json({ error: "Melde dich mit ChatGPT an." }, 401);
   if (req.method === "GET") {
@@ -275,12 +219,9 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     if (params.get("notice")) return json(notice(await store.read(owner), now));
     // Polling sends the known revision. An unchanged library costs one small query instead of the whole payload.
     const known = params.get("known");
-    if (known !== null && Number(known) === await store.revision(owner)) {
-      // A friend's profile or progress can change without changing this account's library revision.
-      return json({ unchanged: true, revision: Number(known), ...await socialVisible(store, await store.readSocial(owner), owner, now) });
-    }
+    if (known !== null && Number(known) === await store.revision(owner)) return json({ unchanged: true, revision: Number(known) });
     const account = await store.read(owner);
-    return json({ ...visible(account, req), ...await socialVisible(store, account, owner, now), pushKey: options.pushKey ?? null });
+    return json({ ...visible(account, req), partner: await partnerSummary(store, account, owner, now), pushKey: options.pushKey ?? null });
   }
   if (req.method !== "POST") return json({ error: "Methode nicht verfügbar." }, 405);
   if (!trustedOrigin(req)) return json({ error: "Anfrage abgelehnt." }, 403);
@@ -288,47 +229,34 @@ export async function api(req: Request, store: AccountStore, now = Date.now(), o
     const input = await body(req);
     const social = z.object({ action: socialShape }).safeParse(input);
     if (social.success) {
-      const reply = await runSocial(store, { id: owner, name: displayName(await store.read(owner), req) }, social.data.action, now);
+      const reply = await runSocial(store, { id: owner, signInName: nameOf(req), name: async () => displayName(await store.read(owner), req) }, social.data.action, now);
       const { account, ...rest } = reply.body as { account?: Account };
       if (!account) return json(rest, reply.status);
-      return json({ ...visible(account, req), ...await socialVisible(store, account, owner, now), ...rest }, reply.status);
+      return json({ ...visible(account, req), partner: await partnerSummary(store, account, owner, now), ...rest }, reply.status);
     }
     const parsed = mutation.safeParse(input);
     if (!parsed.success) return json({ error: "Prüfe die Felder. Pro Karte sind 1500 Zeichen je Seite erlaubt." }, 400);
-    const { action, requestId, at, content, clientId, sequence } = parsed.data;
-    if (requestId && (!clientId || !sequence) || !requestId && (clientId || sequence)) return json({ error: "Die lokale Anfrage ist unvollständig." }, 400);
-    if (requestId && !isDurableAction(action)) return json({ error: "Diese Aktion kann nicht nachträglich übertragen werden." }, 400);
+    const { action } = parsed.data;
+    const picture = action.type === "profile" && action.picture ? crypto.randomUUID() : undefined;
+    if (picture && action.type === "profile" && action.picture) await store.putRecord(pictureKey(picture), 0, { owner, data: action.picture } satisfies StoredPicture);
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
       const account = await store.read(owner);
-      if (clientId && sequence) {
-        const confirmed = account.syncClients?.[clientId] ?? 0;
-        if (sequence <= confirmed) return json(await currentVisible(store, account, req, owner, now));
-        if (sequence !== confirmed + 1) return json({ ...await currentVisible(store, account, req, owner, now), error: "Eine frühere Bewertung wird noch übertragen.", retryable: true }, 409);
-      }
-      if (requestId && content && action.type === "sortCard") {
-        const card = account.workspace.decks.find(deck => deck.id === action.deckId)?.cards.find(card => card.id === action.cardId);
-        if (!card || deckDigest({ title: "", cards: [card] }) !== content) return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karte wurde inzwischen bearbeitet. Prüfe die lokale Bewertung." }, 409);
-      }
+      const previous = account.profile?.picture;
       let token: string | undefined;
-      const actionTime = requestId && at !== undefined ? Math.min(at, now) : now;
-      if (requestId && (action.type === "sortCard" || action.type === "rate" || action.type === "cardPass")) {
-        const review = action.type === "sortCard" ? account.workspace.reviews[action.cardId + ":" + action.direction]
-          : action.type === "rate" ? account.workspace.reviews[(account.workspace.session?.queue[action.cursor] ?? "") + ":" + account.workspace.session?.direction] : undefined;
-        const pass = action.type === "cardPass" ? account.workspace.passes?.[action.deckId + ":" + action.direction] : undefined;
-        if (review?.lastReview && Date.parse(review.lastReview) > actionTime || pass && pass.updated > actionTime) {
-          return json({ ...await currentVisible(store, account, req, owner, now), error: "Diese Karten wurden inzwischen auf einem anderen Gerät weiter gelernt. Prüfe die lokalen Bewertungen." }, 409);
-        }
-      }
-      try { token = change(account, action, actionTime, requestId); }
+      try { token = change(account, action, now, picture); }
       catch (error) {
         if (!(error instanceof Rejection)) throw error;
+        if (picture) await store.dropRecord(pictureKey(picture));
         // The current state goes along, so the client shows what actually happened.
-        return json({ ...await currentVisible(store, account, req, owner, now), error: error.message }, error.status);
+        return json({ ...visible(account, req), error: error.message }, error.status);
       }
-      if (clientId && sequence) account.syncClients = { ...account.syncClients, [clientId]: sequence };
-      if (await store.write(owner, account)) return json({ ...await currentVisible(store, account, req, owner, now), revision: account.revision + 1, token });
+      if (await store.write(owner, account)) {
+        if (previous && previous !== account.profile?.picture) await store.dropRecord(pictureKey(previous));
+        return json({ ...visible(account, req), revision: account.revision + 1, token });
+      }
     }
-    return json({ ...await currentVisible(store, await store.read(owner), req, owner, now), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut.", retryable: true }, 409);
+    if (picture) await store.dropRecord(pictureKey(picture));
+    return json({ ...visible(await store.read(owner), req), error: "Dein Lernstand wird gerade gleichzeitig bearbeitet. Versuche es erneut." }, 409);
   } catch (error) {
     if (error instanceof InputError) return json({ error: error.message }, 400);
     console.error("Kalo workspace write failed");
