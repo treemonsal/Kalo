@@ -164,15 +164,15 @@
 .deck-tile { grid-template-columns: 1fr auto; grid-template-areas: "title ring" "meta meta"; align-content: space-between; }
 .deck-tile .tile-title { grid-area: title; }
 .deck-tile .tile-meta { grid-area: meta; }
-.mastery-ring { grid-area: ring; position: relative; display: grid; place-items: center; width: 40px; height: 40px; }
+.mastery-ring { grid-area: ring; position: relative; flex: none; display: block; width: 40px; height: 40px; }
 .mastery-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
 .mastery-ring .ring-track, .mastery-ring .ring-fill { stroke-width: 4; }
-.mastery-ring > span { position: relative; color: var(--muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Number and circle share the same box, so the number is centred in every browser, also when a long title squeezes the row. */
+.mastery-ring > span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .mastery-ring[data-full="true"] > span { color: var(--known-ink); }
 .subject-badge { font-weight: 600; }
 
 .icon-button.go { color: var(--accent); }
-.swipe-hint { color: var(--faint); }
 /* On touch screens swiping moves through the cards; the arrows only help with a mouse. Examples sit on the card itself. */
 @media (hover: none) { .card-controls { display: none; } }
 .mode-count { font-size: var(--fs-callout) !important; font-weight: 600; font-variant-numeric: tabular-nums; }

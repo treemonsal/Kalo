@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
-import { prefersReducedMotion } from "./motion";
+import { finePointer, openDialog, prefersReducedMotion } from "./motion";
 
 /** An error always comes with something the person can do next. */
 export type Problem = { message: string; action?: { label: string; run: () => void }; link?: { label: string; href: string } };
@@ -40,10 +40,8 @@ function ConfirmDialog({ ask, onDone }: { ask: Ask; onDone: (value: boolean) => 
   const dialog = useRef<HTMLDialogElement>(null);
   const finished = useRef(false);
 
-  useEffect(() => {
-    const element = dialog.current;
-    if (element && !element.open) element.showModal();
-  }, []);
+  // Grows from the pressed button and dims the browser bar with the page.
+  useLayoutEffect(() => openDialog(dialog.current), []);
 
   // The dialog leaves the way it came in before it closes.
   function finish(value: boolean) {
@@ -62,7 +60,7 @@ function ConfirmDialog({ ask, onDone }: { ask: Ask; onDone: (value: boolean) => 
       <h2 id="confirm-title">{ask.title}</h2>
       {ask.message && <p id="confirm-message">{ask.message}</p>}
       <div className="sheet-actions">
-        <button className="button" autoFocus onClick={() => finish(false)}>Abbrechen</button>
+        <button className="button" autoFocus={finePointer()} onClick={() => finish(false)}>Abbrechen</button>
         <button className={"button " + (ask.destructive ? "destructive" : "primary")} onClick={() => finish(true)}>{ask.confirm}</button>
       </div>
     </div>

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { dayOf, dueCards, reviewQueue, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
+import { dayOf, dueCards, reviewQueue, secure, type Deck, type Direction, type Filter, type Workspace, type Session } from "../../lib/learning";
 import { examIn, examPace, sitting } from "../../lib/progress";
 import { Icon, type IconKind } from "./icons";
+import ProgressBeam from "./progress-beam";
 
 type Props = {
   workspace: Workspace; deck: Deck; time: number; busy: boolean;
@@ -29,6 +30,8 @@ export default function DeckView(props: Props) {
   const due = dueCards(workspace, visible, direction, time).length;
   // The same rule as the tile on Home and in the profile, so a set never shows two different numbers.
   const done = sitting(workspace, deck);
+  const sits = (id: string) => secure(workspace, id, "front") || secure(workspace, id, "back");
+  const missed = (workspace.mistakes[deck.id + ":" + direction] ?? []).filter(id => deck.cards.some(card => card.id === id) && !sits(id)).length;
   // When the next card of this side comes due, for «0 fällig · morgen».
   const next = visible.reduce((soonest, card) => {
     const at = Date.parse(workspace.reviews[card.id + ":" + direction]?.due ?? "");
@@ -88,7 +91,9 @@ export default function DeckView(props: Props) {
       <div>
         <h1>{deck.title}</h1>
         <div className="deck-summary">
-          <span className="meter"><i style={{ width: (done / Math.max(1, deck.cards.length)) * 100 + "%" }} /></span>
+          {/* The same line as in the card mode: green for cards that sit, orange for cards marked «Noch nicht». */}
+          <ProgressBeam progress={(done + missed) / Math.max(1, deck.cards.length)}
+            colors={[...Array(done).fill("var(--known-ink)"), ...Array(missed).fill("var(--again-ink)")]} />
           <span aria-label={done + " von " + deck.cards.length + " Karten gelernt"}>{done}/{deck.cards.length}</span>
           {due > 0 && <span className="due-badge" aria-label={due + " fällig"}><Icon kind="repeat" size="s" />{due}</span>}
         </div>

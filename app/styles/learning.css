@@ -11,7 +11,8 @@
 .progress-beam > i::before, .progress-beam > i::after {
   content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--beam-colors);
 }
-.progress-beam > i::before { filter: blur(4px); opacity: .48; }
+/* A calm, solid line: no glow around the colours. */
+.progress-beam > i::before { display: none; }
 .progress-beam > i::after { box-shadow: inset 0 1px 0 #ffffff20; }
 
 /* The stack: the next card waits underneath and grows into place while the top card leaves. */
@@ -29,7 +30,11 @@
 .card-stage[data-mode="idle"] .card-under { transition: transform var(--t-view) var(--ease-settle), opacity var(--t-view) ease; }
 .card-under .card-face { box-shadow: none; }
 /* The next card stays blank at rest and while the current one turns; its question only appears as the current card is swiped away. */
-.card-under :is(.card-copy, .eyebrow) { opacity: var(--progress); }
+.card-under :is(.card-copy, .eyebrow) { opacity: var(--progress); transition: opacity 160ms ease; }
+/* The new top card takes over the text the card underneath was already showing: it settles in instead of popping up. */
+.flashcard .card-faces .card-copy { animation: copy-arrive 220ms var(--ease-settle); }
+@keyframes copy-arrive { from { opacity: .35; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .flashcard .card-faces .card-copy { animation: none; } .card-under :is(.card-copy, .eyebrow) { transition: none; } }
 .card-stage[data-demo] .card-under :is(.card-copy, .eyebrow) { opacity: 0; }
 .flashcard {
   position: relative; z-index: 1; display: grid; width: 100%; padding: 0; border: 0; background: none; color: var(--ink); text-align: left;
@@ -74,11 +79,12 @@
 .swipe-stamp.known { color: var(--known-ink); opacity: var(--known); transform: translate(-50%, -50%) scale(calc(.78 + .22 * var(--known))) rotate(-4deg); }
 .swipe-stamp.again { color: var(--again-ink); opacity: var(--again); transform: translate(-50%, -50%) scale(calc(.78 + .22 * var(--again))) rotate(4deg); }
 .swipe-status { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 48px; margin: var(--space-2) 0; font-weight: 600; }
-.swipe-hint { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-footnote); font-weight: 500; }
 .rating-known { color: var(--known-ink); }
 .rating-again { color: var(--again-ink); }
-.swipe-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-.swipe-actions .button { min-height: 52px; }
+/* The two ratings are the main controls: large, centred and easy to reach with the thumb. */
+.swipe-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); justify-items: center; }
+.swipe-actions .button { width: 100%; max-width: 220px; min-height: 64px; font-size: 1.125rem; white-space: nowrap; }
+.swipe-actions .button .icon-svg { width: 22px; height: 22px; }
 .button.rate-known, .button.rate-again { border: 0; background: transparent; box-shadow: none; }
 .button.rate-known { color: var(--known-ink); }
 .button.rate-again { color: var(--again-ink); }
@@ -107,7 +113,7 @@
 @media (max-height: 600px) {
   .focus-dialog .card-toolbar, .focus-dialog .card-viewer > .study-progress { margin-bottom: var(--space-2); }
   .focus-dialog .swipe-status { min-height: 32px; margin-block: var(--space-1); font-size: var(--fs-footnote); }
-  .focus-dialog .swipe-actions .button { min-height: 44px; padding: 8px 10px; }
+  .focus-dialog .swipe-actions .button { min-height: 56px; padding: 8px 10px; }
   .focus-dialog .card-controls { margin-top: var(--space-1); }
   .focus-dialog .card-face { padding: var(--space-3) var(--space-4); gap: var(--space-2); }
 }

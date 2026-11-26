@@ -209,6 +209,41 @@ await scenario("Wisch-Demo: Berührung beendet die Demo vollständig", phone, as
   assert.equal(await page.locator(".card-stage").evaluate(element => element.dataset.demo), undefined, "die nächste Kartenfrage bleibt nach Unterbrechen nicht ausgeblendet");
 });
 
+await scenario("Feinschliff: Kreis mittig, kein Leuchten, Dialog dunkelt Leiste ab, kein blauer Ring nach Tippen", phone, async page => {
+  await save(page, "Schliff", vocabulary);
+  await page.locator(".deck-tile", { hasText: "Schliff" }).click();
+  await page.locator("button.mode", { hasText: "Karten" }).click();
+  await page.waitForSelector(".flashcard");
+  assert.equal(await page.getByText("Wischen: links noch nicht").count(), 0, "kein Erklärsatz mehr");
+  assert.equal(await page.locator(".progress-beam > i").evaluate(element => getComputedStyle(element, "::before").display), "none", "kein Leuchten");
+  const theme = () => page.evaluate(() => document.querySelector('meta[name="theme-color"]')?.getAttribute("content"));
+  const before = await theme();
+  // One rated card, so «Mischen» asks before starting over.
+  await page.locator(".swipe-actions .rate-again").click();
+  await page.waitForTimeout(800);
+  const shuffle = page.getByRole("button", { name: "Karten mischen und neu beginnen" });
+  await shuffle.click();
+  await page.waitForSelector(".sheet-dialog[open]");
+  assert.notEqual(await theme(), before, "Statusleiste dunkelt mit ab");
+  const outline = await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle);
+  assert.notEqual(outline, "solid", "kein blauer Ring nach Tippen");
+  await page.locator(".sheet-dialog").getByRole("button", { name: "Abbrechen" }).click();
+  await page.waitForTimeout(300);
+  assert.equal(await theme(), before, "Farbe kommt zurück");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: "Profil", exact: true }).click();
+  await page.getByRole("button", { name: "Statistik" }).click();
+  await page.waitForSelector(".mastery-list .mastery-ring");
+  const centre = await page.locator(".mastery-list .mastery-ring").first().evaluate(element => {
+    const number = element.querySelector(":scope > span");
+    number.textContent = "67";
+    const ring = element.getBoundingClientRect(), text = number.firstChild ? (() => { const range = document.createRange(); range.selectNodeContents(number); return range.getBoundingClientRect(); })() : number.getBoundingClientRect();
+    return [Math.abs(ring.left + ring.width / 2 - (text.left + text.width / 2)), Math.abs(ring.top + ring.height / 2 - (text.top + text.height / 2))];
+  });
+  assert.ok(centre[0] < 2 && centre[1] < 3, "Zahl mittig im Kreis: " + centre);
+});
+
 for (const [state, text] of results) console.log((state === "ok" ? "ok   " : "FAIL ") + text);
 const failed = results.filter(([state]) => state !== "ok").length;
 console.log(results.length - failed + " von " + results.length + " Browserprüfungen bestanden");

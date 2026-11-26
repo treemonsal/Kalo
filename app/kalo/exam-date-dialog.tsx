@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { openDialog } from "./motion";
 import type { Deck } from "../../lib/learning";
 import { lockViewport } from "../../lib/viewport-lock";
 import { Icon } from "./icons";
@@ -15,8 +16,8 @@ export default function ExamDateDialog({ deck, busy, onClose, onSave }: Props) {
 
   useLayoutEffect(() => {
     const unlock = lockViewport();
-    if (dialog.current && !dialog.current.open) dialog.current.showModal();
-    return unlock;
+    const close = openDialog(dialog.current);
+    return () => { close(); unlock(); };
   }, []);
 
   async function save(event: FormEvent) {
