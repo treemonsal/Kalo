@@ -82,8 +82,7 @@ export default function SettingsView({ workspace, busy, theme, design, chatLink,
         <div className="appearance" role="radiogroup" aria-labelledby="goal">
           {GOALS.map(value => <label key={value}><input type="radio" name="goal" checked={goalOf(workspace) === value} onChange={() => void mutate({ type: "setGoal", goal: value })} /><span>{value}</span></label>)}
         </div></div>
-      <p>Jede Bewertung zählt einen Punkt. Richtige Goldkarten zählen zwei.</p>
-      <p className="muted">Goldkarten zählen doppelt. Ein verpasster Tag pro Woche gilt als Ruhetag.</p>
+      <p className="muted">Jede Bewertung zählt einen Punkt, richtige Goldkarten zählen zwei. Ein verpasster Tag pro Woche gilt als Ruhetag.</p>
       <label className="check"><input type="checkbox" checked={sound} onChange={event => { writeStored(SOUND_KEY, event.target.checked ? "on" : "off"); if (event.target.checked) play("correct"); }} /> Töne beim Lernen</label>
     </section>
     {pushKey && <section className="panel flow"><h2>Lernerinnerungen</h2>
