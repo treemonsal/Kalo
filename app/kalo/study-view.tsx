@@ -78,7 +78,8 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
   // The beam starts neutral on entry; inherited recall streaks still guide learning, but are not new answers.
-  const [beamStart] = useState(() => ({ round: session.round, cursor: session.cursor, queue: [...session.queue] }));
+  const [beamStart] = useState(() => ({ round: session.round, cursor: session.cursor, queue: [...session.queue],
+    pending: session.initial.filter(id => (session.tally[id]?.streak ?? 0) < 2) }));
   const swipe = useRef<{ id: number; x: number; dx: number } | null>(null);
   const panel = useRef<HTMLElement>(null);
   const leaving = useRef(false);
@@ -107,8 +108,10 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const deck = workspace.decks.find(item => item.id === session.deckId);
   const decks = sessionDecks(workspace, session);
   // Use actual question advancement, including retries, rather than changing the saved mastery data.
-  const answeredHere = new Set(session.round > beamStart.round ? beamStart.queue.slice(beamStart.cursor)
-    : session.queue.slice(beamStart.cursor, session.cursor));
+  const answeredHere = new Set(session.round === beamStart.round ? session.queue.slice(beamStart.cursor, session.cursor)
+    : session.round === beamStart.round + 1 ? [...beamStart.queue.slice(beamStart.cursor), ...session.queue.slice(0, session.cursor)]
+      // A whole later round has finished: every card that was pending on entry has now been answered here.
+      : session.round > beamStart.round + 1 ? beamStart.pending : []);
   const mastered = session.initial.filter(id => (session.tally[id]?.streak ?? 0) >= 2);
   const open = session.initial.filter(id => (session.tally[id]?.streak ?? 0) < 2);
   const roundBreak = session.mode === "learn" && !session.done && session.round > 1 && session.cursor === 0 && openedRound !== current && !shown;

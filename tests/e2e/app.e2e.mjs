@@ -266,13 +266,12 @@ await scenario("Lernleiste: neutral bei Start, Fortsetzen und neuer Einheit, Ler
   await neutral();
   assert.deepEqual((await workspace()).progress, seeded, "Start leert nur die Anzeige");
 
-  const prompt = await page.locator("#prompt").innerText();
-  const answer = vocabulary.find(card => card.front === prompt).back;
-  await page.locator(".answer-field textarea").fill(answer);
-  const saved = page.waitForResponse(response => response.url().endsWith("/api/workspace") && response.request().method() === "POST");
+  await page.locator(".answer-field textarea").fill("falsch");
   await page.getByRole("button", { name: "Prüfen" }).click();
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/workspace") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Weiter", exact: true }).click();
   await saved;
-  await page.waitForFunction(() => document.querySelector(".progress-beam > i")?.style.getPropertyValue("--beam-colors").includes("--known-ink"));
+  await page.waitForFunction(() => document.querySelector(".progress-beam > i")?.style.getPropertyValue("--beam-colors").includes("--again-ink"));
   const afterAnswer = await workspace();
   await page.getByRole("button", { name: "Lernen unterbrechen" }).click();
   await page.getByRole("button", { name: /Weitermachen/ }).click();
@@ -283,8 +282,15 @@ await scenario("Lernleiste: neutral bei Start, Fortsetzen und neuer Einheit, Ler
   assert.deepEqual(resumed.reviews, afterAnswer.reviews);
   assert.equal(resumed.session.cursor, afterAnswer.session.cursor, "Fortsetzen erhält die Kartenposition");
 
-  for (let round = 1; round <= 4; round++) {
-    if (round > 1) await page.getByRole("button", { name: round === 4 ? "Letzte Runde starten" : "Runde " + round + " starten" }).click();
+  const prompt = await page.locator("#prompt").innerText();
+  const answer = vocabulary.find(card => card.front === prompt).back;
+  await page.locator(".answer-field textarea").fill(answer);
+  await page.getByRole("button", { name: "Prüfen" }).click();
+  await page.waitForFunction(() => document.querySelector(".progress-beam > i")?.style.getPropertyValue("--beam-colors").includes("--known-ink"));
+  assert.ok(!(await colors()).includes("--again-ink"), "die falsche Antwort von vor der Pause bleibt zunächst ausgeblendet");
+  await page.getByRole("button", { name: "Weiter", exact: true }).click();
+  for (let round = 2; round <= 4; round++) {
+    await page.getByRole("button", { name: round === 4 ? "Letzte Runde starten" : "Runde " + round + " starten" }).click();
     await page.locator(".answer-field textarea").fill("falsch");
     await page.getByRole("button", { name: "Prüfen" }).click();
     await page.getByRole("button", { name: "Weiter", exact: true }).click();
