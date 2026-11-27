@@ -56,9 +56,9 @@ function level(tally: Session["tally"][string] | undefined) {
   return tally.seen && !tally.missed ? 1 : 0;
 }
 
-function Mastery({ session, answeredHere }: { session: Session; answeredHere: Record<string, boolean> }) {
+function Mastery({ session, answeredHere }: { session: Session; answeredHere: ReadonlySet<string> }) {
   return <ProgressBeam colors={session.initial.map(id => {
-    if (!answeredHere[id]) return "var(--line)";
+    if (!answeredHere.has(id)) return "var(--line)";
     const tally = session.tally[id];
     if (tally?.missed) return "var(--again-ink)";
     const strength = level(tally);
@@ -78,7 +78,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
   // The beam starts neutral on entry; inherited recall streaks still guide learning, but are not new answers.
-  const [answeredHere, setAnsweredHere] = useState<Record<string, boolean>>({});
+  const [beamStart] = useState(() => ({ round: session.round, cursor: session.cursor, queue: [...session.queue] }));
   const swipe = useRef<{ id: number; x: number; dx: number } | null>(null);
   const panel = useRef<HTMLElement>(null);
   const leaving = useRef(false);
@@ -106,6 +106,9 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
   const shown = result && (result.to === current || (result.to === null && result.from === current)) ? result : null;
   const deck = workspace.decks.find(item => item.id === session.deckId);
   const decks = sessionDecks(workspace, session);
+  // Use actual question advancement, including retries, rather than changing the saved mastery data.
+  const answeredHere = new Set(session.round > beamStart.round ? beamStart.queue.slice(beamStart.cursor)
+    : session.queue.slice(beamStart.cursor, session.cursor));
   const mastered = session.initial.filter(id => (session.tally[id]?.streak ?? 0) >= 2);
   const open = session.initial.filter(id => (session.tally[id]?.streak ?? 0) < 2);
   const roundBreak = session.mode === "learn" && !session.done && session.round > 1 && session.cursor === 0 && openedRound !== current && !shown;
@@ -125,7 +128,6 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
     const wasSecure = secure(workspace, q.card.id, session.direction);
     const saved = await mutate({ type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: value, self });
     if (!saved) submitted.current = "";
-    else if (session.mode === "learn") setAnsweredHere(previous => ({ ...previous, [q.card.id]: true }));
     const mastered = Boolean(saved && correct && !wasSecure && secure(saved.workspace, q.card.id, session.direction));
     const combo = saved?.workspace.session?.combo ?? 0;
     if (mastered) play("mastered");
