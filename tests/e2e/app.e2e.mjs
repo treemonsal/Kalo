@@ -244,6 +244,66 @@ await scenario("Feinschliff: Kreis mittig, kein Leuchten, Dialog dunkelt Leiste 
   assert.ok(centre[0] < 2 && centre[1] < 3, "Zahl mittig im Kreis: " + centre);
 });
 
+await scenario("Lernleiste: neutral bei Start, Fortsetzen und neuer Einheit, Lernstand bleibt erhalten", phone, async page => {
+  await save(page, "Leiste zurücksetzen", vocabulary.slice(0, 2));
+  const seeded = await page.evaluate(async () => {
+    const { workspace } = await (await fetch("/api/workspace")).json();
+    for (const card of workspace.decks[0].cards) workspace.progress[card.id + ":front"] = { seen: true, streak: 1, missed: false };
+    const response = await fetch("/api/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: { type: "restore", data: workspace } }) });
+    if (!response.ok) throw new Error("Lernstand vorbereiten fehlgeschlagen");
+    return workspace.progress;
+  });
+  const workspace = () => page.evaluate(async () => (await (await fetch("/api/workspace")).json()).workspace);
+  const colors = () => page.locator(".study-progress .progress-beam > i").evaluate(element => element.style.getPropertyValue("--beam-colors"));
+  const neutral = async () => {
+    const value = await colors();
+    assert.ok(!value.includes("--known-ink") && !value.includes("--again-ink"), "Leiste ohne Bewertungen aus früheren Besuchen: " + value);
+  };
+  await page.reload(); await page.waitForLoadState("networkidle");
+  await page.locator(".deck-tile", { hasText: "Leiste zurücksetzen" }).click();
+  await page.locator("button.mode", { hasText: "Lernen" }).click();
+  await page.waitForSelector("#prompt");
+  await neutral();
+  assert.deepEqual((await workspace()).progress, seeded, "Start leert nur die Anzeige");
+
+  const prompt = await page.locator("#prompt").innerText();
+  const answer = vocabulary.find(card => card.front === prompt).back;
+  await page.locator(".answer-field textarea").fill(answer);
+  const saved = page.waitForResponse(response => response.url().endsWith("/api/workspace") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Prüfen" }).click();
+  await saved;
+  await page.waitForFunction(() => document.querySelector(".progress-beam > i")?.style.getPropertyValue("--beam-colors").includes("--known-ink"));
+  const afterAnswer = await workspace();
+  await page.getByRole("button", { name: "Lernen unterbrechen" }).click();
+  await page.getByRole("button", { name: /Weitermachen/ }).click();
+  await page.waitForSelector("#prompt");
+  await neutral();
+  const resumed = await workspace();
+  assert.deepEqual(resumed.progress, afterAnswer.progress);
+  assert.deepEqual(resumed.reviews, afterAnswer.reviews);
+  assert.equal(resumed.session.cursor, afterAnswer.session.cursor, "Fortsetzen erhält die Kartenposition");
+
+  for (let round = 1; round <= 4; round++) {
+    if (round > 1) await page.getByRole("button", { name: round === 4 ? "Letzte Runde starten" : "Runde " + round + " starten" }).click();
+    await page.locator(".answer-field textarea").fill("falsch");
+    await page.getByRole("button", { name: "Prüfen" }).click();
+    await page.getByRole("button", { name: "Weiter", exact: true }).click();
+  }
+  await page.getByRole("heading", { name: "Lerneinheit beendet" }).waitFor();
+  assert.ok((await colors()).includes("--again-ink"), "neue falsche Antworten erscheinen orange");
+  const previous = await workspace();
+  await page.getByRole("button", { name: "Offene Karten üben" }).click();
+  await page.waitForSelector("#prompt");
+  await page.waitForFunction(() => {
+    const value = document.querySelector(".progress-beam > i")?.style.getPropertyValue("--beam-colors");
+    return value && !value.includes("--known-ink") && !value.includes("--again-ink");
+  });
+  await neutral();
+  const continued = await workspace();
+  assert.notEqual(continued.session.id, previous.session.id, "tatsächlich eine neue Einheit");
+  assert.deepEqual(continued.progress, previous.progress, "neue Einheit erhält den bisherigen Abrufstand");
+});
+
 for (const [state, text] of results) console.log((state === "ok" ? "ok   " : "FAIL ") + text);
 const failed = results.filter(([state]) => state !== "ok").length;
 console.log(results.length - failed + " von " + results.length + " Browserprüfungen bestanden");

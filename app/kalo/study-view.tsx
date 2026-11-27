@@ -56,8 +56,9 @@ function level(tally: Session["tally"][string] | undefined) {
   return tally.seen && !tally.missed ? 1 : 0;
 }
 
-function Mastery({ session }: { session: Session }) {
+function Mastery({ session, answeredHere }: { session: Session; answeredHere: Record<string, boolean> }) {
   return <ProgressBeam colors={session.initial.map(id => {
+    if (!answeredHere[id]) return "var(--line)";
     const tally = session.tally[id];
     if (tally?.missed) return "var(--again-ink)";
     const strength = level(tally);
@@ -76,6 +77,8 @@ type Props = {
 export default function StudyView({ workspace, session, busy, mutate, now, draftKey, onBack, onStart, onStep, onHome }: Props) {
   const [result, setResult] = useState<Result | null>(null);
   const [openedRound, setOpenedRound] = useState("");
+  // The beam starts neutral on entry; inherited recall streaks still guide learning, but are not new answers.
+  const [answeredHere, setAnsweredHere] = useState<Record<string, boolean>>({});
   const swipe = useRef<{ id: number; x: number; dx: number } | null>(null);
   const panel = useRef<HTMLElement>(null);
   const leaving = useRef(false);
@@ -122,6 +125,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
     const wasSecure = secure(workspace, q.card.id, session.direction);
     const saved = await mutate({ type: "answer", sessionId: session.id, cursor: session.cursor, round: session.round, answer: value, self });
     if (!saved) submitted.current = "";
+    else if (session.mode === "learn") setAnsweredHere(previous => ({ ...previous, [q.card.id]: true }));
     const mastered = Boolean(saved && correct && !wasSecure && secure(saved.workspace, q.card.id, session.direction));
     const combo = saved?.workspace.session?.combo ?? 0;
     if (mastered) play("mastered");
@@ -146,7 +150,7 @@ export default function StudyView({ workspace, session, busy, mutate, now, draft
         <Icon kind="flame" filled /> {session.combo}</span>}
     </div>
     {session.mode === "learn" && session.initial.length > 0 ? <div className="study-progress">
-      <Mastery session={session} />
+      <Mastery session={session} answeredHere={answeredHere} />
       <span>{mastered.length} von {session.initial.length}{session.done ? " sitzen" : " · Runde " + session.round + "/" + MAX_LEARN_ROUNDS}</span>
     </div> : !session.done || shown ? <div className="study-progress">
       <div className="meter"><i style={{ width: (answered / total) * 100 + "%" }} /></div>
