@@ -717,7 +717,7 @@ export default function Kalo({ accountId, initialAppearance, initialDesign }: { 
           onBookmark={activity => writeStored(bookmarkKey, JSON.stringify(activity))}
           onProgress={snapshot => saveProgress(deck, direction, cardsStart.filter, snapshot)} /></HelpContext>}
 
-        {workspace && view === "study" && session && <HelpContext value={{ chatUrl: safeChatUrl(chatLink), mutate, deckId: session.deckId }}><StudyView workspace={workspace} session={session} busy={writingBusy} mutate={mutate} draftKey={"kalo-answer:" + accountId}
+        {workspace && view === "study" && session && <HelpContext value={{ chatUrl: safeChatUrl(chatLink), mutate, deckId: session.deckId }}><StudyView key={session.id} workspace={workspace} session={session} busy={writingBusy} mutate={mutate} draftKey={"kalo-answer:" + accountId}
           onBack={returnToDeck} onStart={(mode, override) => void start(mode, undefined, override)}
           now={time} onStep={runStep} onHome={() => navigate("home")} /></HelpContext>}
 
